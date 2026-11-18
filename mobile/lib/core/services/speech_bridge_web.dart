@@ -278,6 +278,7 @@ class SpeechBridge {
     void Function() onRemoteChange,
   ) {
     try {
+      if (Uri.base.host.toLowerCase().endsWith('github.io')) return null;
       if (!_window.has('EventSource')) return null;
       final esAny = _window['EventSource'];
       if (esAny == null || !esAny.isA<JSFunction>()) return null;

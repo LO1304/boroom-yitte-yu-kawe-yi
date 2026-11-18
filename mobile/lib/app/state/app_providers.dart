@@ -514,9 +514,13 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
                 Map<String, dynamic>.from(snap['weekly_topic']))
             : state.weeklyTopic,
         challenges: snap['challenges'] is List
-            ? (snap['challenges'] as List)
-                .map((e) => ChallengeItem.fromJson(Map<String, dynamic>.from(e)))
-                .toList()
+            ? _mergeChallenges(
+                (snap['challenges'] as List)
+                    .map((e) =>
+                        ChallengeItem.fromJson(Map<String, dynamic>.from(e)))
+                    .toList(),
+                state.challenges,
+              )
             : state.challenges,
         debates: snap['debates'] is List
             ? (snap['debates'] as List)
@@ -684,6 +688,16 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
   ) {
     final existingIds = loaded.map((v) => v.id).toSet();
     final extra = defaults.where((v) => !existingIds.contains(v.id)).toList();
+    if (extra.isEmpty) return loaded;
+    return [...loaded, ...extra];
+  }
+
+  static List<ChallengeItem> _mergeChallenges(
+    List<ChallengeItem> loaded,
+    List<ChallengeItem> defaults,
+  ) {
+    final existingIds = loaded.map((c) => c.id).toSet();
+    final extra = defaults.where((c) => !existingIds.contains(c.id)).toList();
     if (extra.isEmpty) return loaded;
     return [...loaded, ...extra];
   }

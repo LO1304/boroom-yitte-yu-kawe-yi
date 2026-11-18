@@ -25,6 +25,11 @@ class BackendRepository {
 
   bool get isCloudConnected => _client != null;
 
+  bool get _useSameOriginApi =>
+      kIsWeb &&
+      _client == null &&
+      !Uri.base.host.toLowerCase().endsWith('github.io');
+
   Future<UserProfile?> restoreSessionProfile() async {
     final prefs = await SharedPreferences.getInstance();
     if (_client != null && _client!.auth.currentUser != null) {
@@ -83,7 +88,7 @@ class BackendRepository {
       return profile;
     }
 
-    if (kIsWeb) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .post(
@@ -159,7 +164,7 @@ class BackendRepository {
 
     final prefs = await SharedPreferences.getInstance();
 
-    if (kIsWeb) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .post(
@@ -256,7 +261,7 @@ class BackendRepository {
       return profile;
     }
 
-    if (kIsWeb) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .post(
@@ -312,7 +317,7 @@ class BackendRepository {
   }
 
   Future<List<MemberDirectoryItem>> fetchServerMembers() async {
-    if (kIsWeb && _client == null) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .get(Uri.parse('/api/members'))
@@ -383,7 +388,7 @@ class BackendRepository {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_snapshotKey, encoded);
 
-    if (kIsWeb && _client == null) {
+    if (_useSameOriginApi) {
       try {
         await http
             .put(
@@ -401,7 +406,7 @@ class BackendRepository {
   /// Loads persisted ecosystem state, preferring newer server snapshot on Web
   /// and falling back gracefully to SharedPreferences.
   Future<Map<String, dynamic>?> loadEcosystemSnapshot() async {
-    if (kIsWeb && _client == null) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .get(Uri.parse('/api/snapshot'))
@@ -451,7 +456,7 @@ class BackendRepository {
       return data['content']?.toString() ?? '';
     }
 
-    if (kIsWeb) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .post(
@@ -871,7 +876,7 @@ class BackendRepository {
       await _client!.auth.resetPasswordForEmail(email.trim());
       return true;
     }
-    if (kIsWeb) {
+    if (_useSameOriginApi) {
       final res = await http
           .post(
             Uri.parse('/api/auth/reset-password'),
@@ -897,7 +902,7 @@ class BackendRepository {
     required List<int> bytes,
     String? providedText,
   }) async {
-    if (kIsWeb && _client == null) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .post(
@@ -959,7 +964,7 @@ class BackendRepository {
             .getPublicUrl(storagePath);
       } catch (_) {}
     }
-    if (kIsWeb && _client == null) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .post(
@@ -983,7 +988,7 @@ class BackendRepository {
 
   Future<void> deleteUploadedFile(String? storageUrl) async {
     final raw = storageUrl?.trim() ?? '';
-    if (!kIsWeb || _client != null || !raw.startsWith('/api/files/')) return;
+    if (!_useSameOriginApi || !raw.startsWith('/api/files/')) return;
     try {
       await http.delete(Uri.parse(raw)).timeout(const Duration(seconds: 3));
     } catch (_) {
@@ -1004,7 +1009,7 @@ class BackendRepository {
       );
     }
 
-    if (kIsWeb && _client == null) {
+    if (_useSameOriginApi) {
       try {
         final res = await http
             .post(

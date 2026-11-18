@@ -31,6 +31,19 @@ import '../state/app_providers.dart';
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
+    redirect: (context, state) {
+      final path = state.uri.path;
+      const prefix = '/boroom-yitte-yu-kawe-yi';
+      if (path == prefix || path == '$prefix/') {
+        return '/';
+      }
+      if (path.startsWith('$prefix/')) {
+        final stripped = path.substring(prefix.length);
+        return stripped.isEmpty ? '/' : stripped;
+      }
+      return null;
+    },
+    errorBuilder: (context, state) => const HomeDashboardScreen(),
     routes: [
       GoRoute(
         path: '/splash',
