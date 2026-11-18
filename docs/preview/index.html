@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BOROOM YITTÉ YU KAWÉ YI — Tableau de Bord Aperçu &amp; Audit Visuel (M11)</title>
+  <style>
+    :root {
+      --emerald: #0B4F3F;
+      --emerald-light: #146E58;
+      --emerald-soft: #E3F0EC;
+      --ivory: #FAF8F2;
+      --card: #FFFFFF;
+      --gold: #C89B3C;
+      --gold-soft: #FBF4E2;
+      --ink: #16221F;
+      --muted: #5B6B66;
+      --border: rgba(11, 79, 63, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--ivory);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+    header {
+      background: linear-gradient(135deg, var(--emerald), #07382D);
+      color: #fff;
+      padding: 28px 24px;
+      border-bottom: 3px solid var(--gold);
+    }
+    .container { max-width: 1220px; margin: 0 auto; padding: 24px 20px 64px; }
+    .eyebrow {
+      display: inline-block;
+      background: rgba(200, 155, 60, 0.22);
+      border: 1px solid rgba(200, 155, 60, 0.55);
+      color: #F4E6C1;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 4px 12px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+    }
+    h1 { margin: 4px 0 8px; font-family: Georgia, serif; font-size: 28px; }
+    h2 {
+      margin: 34px 0 14px;
+      font-size: 20px;
+      border-left: 4px solid var(--gold);
+      padding-left: 12px;
+      color: var(--emerald);
+    }
+    .notice {
+      background: var(--gold-soft);
+      border: 1px solid rgba(200, 155, 60, 0.45);
+      border-radius: 14px;
+      padding: 14px 18px;
+      margin-bottom: 22px;
+      font-size: 14px;
+    }
+    .grid-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px 18px;
+    }
+    .stat-num { font-size: 24px; font-weight: 800; color: var(--emerald); }
+    .stat-lbl { font-size: 13px; color: var(--muted); }
+    .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .filter-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--ink);
+      padding: 7px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .filter-btn.active {
+      background: var(--emerald);
+      color: #fff;
+      border-color: var(--emerald);
+    }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 18px;
+    }
+    .shot-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .shot-card img {
+      width: 100%;
+      aspect-ratio: 390 / 844;
+      object-fit: cover;
+      display: block;
+      background: #f0eee7;
+      cursor: zoom-in;
+    }
+    .shot-meta { padding: 12px 14px; }
+    .shot-title { font-weight: 700; font-size: 14px; }
+    .shot-route { font-family: monospace; font-size: 12px; color: var(--muted); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      font-size: 13.5px;
+    }
+    th, td {
+      padding: 11px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { background: var(--emerald-soft); color: var(--emerald); font-weight: 700; }
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .b-a { background: #DFF5EA; color: #0F6A40; }
+    .b-b { background: #E3EEF9; color: #19548E; }
+    .b-c { background: #FFF2D9; color: #8A5B00; }
+    .b-d { background: #F2ECF9; color: #5B2E8A; }
+    .b-e { background: #FCE8E8; color: #9F2424; }
+    pre {
+      background: #151C1A;
+      color: #ECF3F0;
+      padding: 14px 16px;
+      border-radius: 12px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+    .modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.82);
+      display: none; align-items: center; justify-content: center; padding: 24px; z-index: 99;
+    }
+    .modal.open { display: flex; }
+    .modal img { max-height: 92vh; max-width: 92vw; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container" style="padding:0;">
+      <span class="eyebrow">MILESTONE M11 • LIVE PREVIEW &amp; VISUAL PRODUCT AUDIT</span>
+      <h1>BOROOM YITTÉ YU KAWÉ YI — Version 2.0</h1>
+      <p style="margin:0;color:#D6E6E0;">« S'élever individuellement, grandir collectivement. » — Tableau de suivi d'audit visuel, captures réelles Flutter et matrice fonctionnelle.</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="notice">
+      <strong>Note d'architecture et d'honnêteté technique :</strong> Ce tableau HTML ne remplace pas l'application mobile Flutter (<code>mobile/</code>). Toutes les captures ci-dessous sont des rendus authentiques pris en direct sur <strong>l'application Flutter réelle</strong> (viewport mobile <code>390×844 @2x</code> sous Microsoft Edge Web), car l'émulateur Android n'a pas pu démarrer sur cet hôte (virtualisation BIOS VT-x désactivée, <code>aehd</code> arrêté, aucun téléphone Android connecté via ADB).
+    </div>
+
+    <div class="grid-stats">
+      <div class="card">
+        <div class="stat-num">24</div>
+        <div class="stat-lbl">Captures mobiles authentiques (<code>docs/screenshots/</code>)</div>
+      </div>
+      <div class="card">
+        <div class="stat-num">27 / 27</div>
+        <div class="stat-lbl">Tests unitaires &amp; widgets Flutter réussis</div>
+      </div>
+      <div class="card">
+        <div class="stat-num">13 + 8</div>
+        <div class="stat-lbl">Migrations PostgreSQL &amp; Edge Functions validées</div>
+      </div>
+      <div class="card">
+        <div class="stat-num">0</div>
+        <div class="stat-lbl">Erreurs console / overflows après corrections</div>
+      </div>
+    </div>
+
+    <h2>1. Captures d'Écran Réelles de l'Application Flutter (390×844)</h2>
+    <div class="filter-bar" id="filters">
+      <button class="filter-btn active" data-cat="all">Tous les modules</button>
+      <button class="filter-btn" data-cat="auth">Accueil &amp; Auth</button>
+      <button class="filter-btn" data-cat="reflections">Réflexions</button>
+      <button class="filter-btn" data-cat="arenas">Défis, Face-à-Face &amp; Quiz</button>
+      <button class="filter-btn" data-cat="zikr">Yitté Zikr &amp; Tasbīḥ</button>
+      <button class="filter-btn" data-cat="learning">Apprentissage, Carrière &amp; Croissance</button>
+      <button class="filter-btn" data-cat="community">Communauté, Admin &amp; Paramètres</button>
+    </div>
+    <div class="gallery" id="gallery"></div>
+
+    <h2>2. Audit Fonctionnel Honnête par Module (A → E)</h2>
+    <p style="font-size:13.5px;color:var(--muted);">
+      <span class="badge b-a">A</span> Fonctionnel &amp; testé localement &nbsp;
+      <span class="badge b-b">B</span> UI &amp; code serveur prêts, clés cloud requises &nbsp;
+      <span class="badge b-c">C</span> Partiellement implémenté &nbsp;
+      <span class="badge b-d">D</span> Jeu de démonstration sans cloud &nbsp;
+      <span class="badge b-e">E</span> Non implémenté
+    </p>
+    <table>
+      <thead>
+        <tr><th>Module / Service</th><th>Statut</th><th>Détails observés &amp; limitations actuelles</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Splash Sanctuary, Nom Complet (Membres Groupe) &amp; Auth Standard</strong> (<code>/splash</code>, <code>/onboarding</code>, <code>/auth</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>Connexion par <strong>nom complet uniquement</strong> réservée strictement aux <strong>9 membres reconnus du groupe</strong> (<code>/api/auth/name-login</code>), verrou d'accès exclusif configurable en Admin, <strong>Connexion Standard</strong> (email/mot de passe/création de compte pour les externes), récupération de mot de passe et persistance locale (A). Supabase Auth JWT en attente de clés cloud (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Liaison Groupe WhatsApp &amp; Imports .txt</strong> (<code>/community</code>, <code>/admin</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-c">C</span></td>
+          <td>Lien officiel du groupe configuré (<code>https://chat.whatsapp.com/Ioa04LfRCvvFdTtCE6Hj7V?s=cl&amp;p=a&amp;iam=2</code>), ouverture directe depuis Accueil/Communauté, partage en 1 clic (<code>wa.me/?text=...</code>) sur Accueil/Réflexions/Extra Groupe et import réel de discussions exportées (<code>.txt</code>) (A). La synchronisation bot temps réel automatisée vers un groupe WhatsApp personnel dépend d'une passerelle WhatsApp Business Cloud API externe non configurée sans secrets Meta (C).</td>
+        </tr>
+        <tr>
+          <td><strong>Accueil, Pensée du Jour validée &amp; Notifications</strong> (<code>/</code>, <code>/notifications</code>)</td>
+          <td><span class="badge b-a">A</span></td>
+          <td>Rendu mobile vérifié (barre 5 onglets sur une ligne, grille Bento, raccourcis Bibliothèque &amp; Extra Groupe, centre de notifications, Pensée du jour masquée tant qu'aucun texte sourcé n'est validé).</td>
+        </tr>
+        <tr>
+          <td><strong>Réflexions &amp; Archives Historiques Verbatim</strong> (<code>/reflections</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>Archives historiques exactes (Sokhna Diarra, Aida Thiam, Khady Sylla) avec cadres éthiques de modération, proposition structurée de sujets, recherche/filtre/archivage et export PDF (A). Sync PostgREST en attente de Supabase (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Bibliothèque Documentaire &amp; Résumés Anti-Invention</strong> (<code>/documents</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>5 domaines et 40 sous-catégories, upload réel (<code>/api/upload</code>), extraction texte (<code>.txt</code>/<code>.md</code>/<code>.csv</code> + flux PDF lisibles, alerte OCR explicite si illisible), résumé structuré en 8 sections strictement ancré sur le texte source et export PDF (A). OCR serveur externe et stockage Supabase Storage prêts pour clés cloud (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Extra Groupe — Rencontres Mensuelles</strong> (<code>/extra-groupe</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>1re rencontre (Serigne Makhtar Thiam — « Entre Spiritualité et Modernité : Quel équilibre ? ») intégrée fidèlement, espace Q&amp;R, consentement d'enregistrement explicite, compte rendu PDF, et protection stricte de confidentialité sur la liste initiale (9 prénoms masqués par défaut au cercle élargi) (A). Audio temps réel LiveKit en attente de clés cloud (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Yitté Challenge</strong> (<code>/challenges</code>)</td>
+          <td><span class="badge b-a">A</span></td>
+          <td>8 défis organisés (Du Jour, Semaine, Vocaux Audio, Équipe), 10 catégories, 7 formats, filtrage combiné, réponses audio réécoutables, soumission locale et création/suppression par administrateur testées.</td>
+        </tr>
+        <tr>
+          <td><strong>Yitté Face-à-Face</strong> (<code>/debates</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>Sélection match, minuterie préparation, consentement audio + politique de rétention, grille 100 pts à 6 critères, contestation humaine, PDF (A). Upload vocal Storage + STT Deepgram/Whisper + Gemini côté serveur prêts mais non appelés sans secrets cloud (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Yitté Quiz Arena</strong> (<code>/quiz-arena</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>Compte à rebours temps réel, détection changement de fenêtre anti-triche, explications sourcées, tableau 8/16/32 (A). Synchronisation multijoueur temps réel nécessite Supabase Realtime + <code>quiz-engine</code> (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Yitté Zikr &amp; Tasbīḥ Quotidien personnalisable</strong> (<code>/zikr</code>)</td>
+          <td><span class="badge b-a">A</span></td>
+          <td>Session Samedi 20h00 GMT, arabe RTL, translittération, références Bukhari/Muslim, zéro classement de piété, compteur privé + objectif/durée personnalisables (défaut 10 000 Ṣalātu ʿalā an-Nabī / 30j) persistés en local. Salon audio WebRTC LiveKit prêt côté serveur (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Yitté English Club</strong> (<code>/english-club</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>Programme structuré en 6 paliers CEFR (A1 → C2) avec suivi d’étapes, dictionnaire open-source Free Dictionary API (MIT/Wiktionary, IPA + audio MP3 UK/US natifs), verbes irréguliers, portails gratuits (British Council, BBC, Tatoeba), banque hors-ligne 35 mots et évaluation orale 100 pts (A). Laboratoire STT/LLM cloud prêt avec clés serveur (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Yitté Professionnel</strong> (<code>/professional</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>Tous les métiers (Agronomie, Physique, Électronique, Informatique, Médecine, Mathématiques, Technique + saisie libre), ajout/suppression de projets libres détaillés, CV, lettre, simulateur d’entretien vocal &amp; partage WhatsApp (A). Coach carrière IA cloud prêt avec clé LLM (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Studio Design (8 Palettes × 4 Modèles × Clair/Sombre)</strong> (<code>/settings</code>, <code>Accueil</code>)</td>
+          <td><span class="badge b-a">A</span></td>
+          <td>8 thèmes couleurs (Émeraude, Obsidienne, Saphir, Améthyste, Ardoise, Cayor, Oasis, Aurore), 4 modèles structurels au choix (Luxe &amp; Glass, Éditorial Épuré, Communautaire Dynamique, Sanctuaire Classique), barre latérale responsive Desktop + barre flottante mobile.</td>
+        </tr>
+        <tr>
+          <td><strong>Développement Personnel</strong> (<code>/personal-growth</code>)</td>
+          <td><span class="badge b-a">A</span></td>
+          <td>Objectifs hebdo, habitudes avec séries, suivi de lecture, gestion du temps, notes privées &amp; export PDF (A). RLS strict côté PostgreSQL vérifié statiquement.</td>
+        </tr>
+        <tr>
+          <td><strong>Communauté, Salons Live &amp; Messagerie</strong> (<code>/community</code>)</td>
+          <td><span class="badge b-b">B</span> <span class="badge b-d">D</span></td>
+          <td>UI de salons, chat, signalement/blocage fonctionnelle localement sur données démo (D) ; flux temps réel Supabase Realtime et WebRTC LiveKit nécessitent clés serveur (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Administration &amp; Notifications Push</strong> (<code>/admin</code>, <code>FCM/APNs</code>)</td>
+          <td><span class="badge b-a">A</span> <span class="badge b-b">B</span></td>
+          <td>Génération codes d'invitation, vue modération et audit UI testés (A). Contrôle RBAC JWT, envoi FCM/APNs et coûts IA actifs dès déploiement Firebase + Supabase (B).</td>
+        </tr>
+        <tr>
+          <td><strong>Build iOS (.ipa) &amp; Émulateur Android local</strong></td>
+          <td><span class="badge b-c">C</span> <span class="badge b-e">E</span></td>
+          <td>Manifests iOS &amp; CI macOS prêts (C), compilation Apple impossible sur Windows (E). Émulateur Android bloqué sur cet hôte par BIOS VT-x désactivé (E sur ce PC).</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>3. Commandes de Lancement, Débogage &amp; Installation APK</h2>
+    <pre><code># 1. Lancer l'application Flutter réelle en direct (Edge Web) :
+.\scripts\launch_preview.ps1 -Target edge -Port 8080
+
+# 2. Débogage interactif avec Hot Reload [r], Hot Restart [R], DevTools [v] :
+.\scripts\debug_preview.ps1 -Target edge -Port 8080
+
+# 3. Installer l'APK Debug sur téléphone Android physique (USB Debugging activé) :
+C:\Android\sdk\platform-tools\adb.exe devices
+C:\Android\sdk\platform-tools\adb.exe install -r "mobile\build\app\outputs\flutter-apk\app-debug.apk"
+
+# 4. Vérifications automatisées complètes :
+node supabase\tests\validate_all.mjs
+cd mobile &amp;&amp; C:\flutter\bin\flutter.bat analyze &amp;&amp; C:\flutter\bin\flutter.bat test</code></pre>
+  </main>
+
+  <div class="modal" id="lightbox" onclick="this.classList.remove('open')">
+    <img id="lightbox-img" alt="Aperçu agrandi" />
+  </div>
+
+  <script>
+    const SHOTS = [
+      { cat: 'auth', title: 'Splash Sanctuary', route: '#/splash', src: '../screenshots/01_auth_onboarding/00_splash_sanctuary.png' },
+      { cat: 'auth', title: 'Bienvenue / Onboarding', route: '#/onboarding', src: '../screenshots/01_auth_onboarding/01_welcome_onboarding.png' },
+      { cat: 'auth', title: 'Connexion, Invitation & Récupération', route: '#/auth', src: '../screenshots/01_auth_onboarding/02_login_registration.png' },
+      { cat: 'auth', title: 'Accueil — Tableau de Bord', route: '#/', src: '../screenshots/02_home/01_home_dashboard.png' },
+      { cat: 'auth', title: 'Accueil — Grille Modules & Zikr', route: '#/', src: '../screenshots/02_home/02_home_modules_grid.png' },
+      { cat: 'reflections', title: 'Réflexions & Archives Historiques', route: '#/reflections', src: '../screenshots/03_reflections/01_reflections.png' },
+      { cat: 'reflections', title: 'Bibliothèque Documentaire (5 Domaines)', route: '#/documents', src: '../screenshots/14_documents/01_bibliotheque_documentaire.png' },
+      { cat: 'community', title: 'Extra Groupe — Serigne Makhtar Thiam', route: '#/extra-groupe', src: '../screenshots/15_extra_groupe/01_extra_groupe.png' },
+      { cat: 'community', title: 'Centre de Notifications', route: '#/notifications', src: '../screenshots/16_notifications/01_notifications.png' },
+      { cat: 'arenas', title: 'Défis & Arènes', route: '#/challenges', src: '../screenshots/04_challenges/01_challenges.png' },
+      { cat: 'arenas', title: 'Yitté Face-à-Face (Match)', route: '#/debates', src: '../screenshots/05_debates/01_face_a_face.png' },
+      { cat: 'arenas', title: 'Yitté Face-à-Face (Audio & Plaidoyer)', route: '#/debates', src: '../screenshots/05_debates/02_face_a_face_rubric.png' },
+      { cat: 'arenas', title: 'Yitté Quiz Arena (1v1 & Tournois)', route: '#/quiz-arena', src: '../screenshots/06_quiz_arena/01_quiz_arena.png' },
+      { cat: 'zikr', title: 'Yitté Zikr (Session Samedi 20h00 GMT)', route: '#/zikr', src: '../screenshots/07_zikr/01_zikr_session.png' },
+      { cat: 'zikr', title: 'Tasbīḥ Quotidien — 10 000 Ṣalātu ʿalā an-Nabī', route: '#/zikr', src: '../screenshots/07_zikr/02_zikr_salawat_10000_goal.png' },
+      { cat: 'zikr', title: 'Progression Privée & Compteur Tasbīḥ', route: '#/zikr', src: '../screenshots/07_zikr/03_zikr_tasbih.png' },
+      { cat: 'learning', title: 'Hub Apprentissage & Évolution', route: '#/learning', src: '../screenshots/08_learning_hub/01_learning_hub.png' },
+      { cat: 'learning', title: 'Yitté English Club (CEFR & 5 Mots)', route: '#/english-club', src: '../screenshots/08_english_club/01_english_club.png' },
+      { cat: 'learning', title: 'Yitté English Club (Détails)', route: '#/english-club', src: '../screenshots/08_english_club/02_english_oral_eval.png' },
+      { cat: 'learning', title: 'Yitté Professionnel', route: '#/professional', src: '../screenshots/09_professional/01_professional_development.png' },
+      { cat: 'learning', title: 'Développement Personnel (Privé)', route: '#/personal-growth', src: '../screenshots/10_personal_growth/01_personal_growth.png' },
+      { cat: 'community', title: 'Communauté & Salons Live', route: '#/community', src: '../screenshots/11_community/01_community.png' },
+      { cat: 'community', title: 'Administration & Gouvernance RBAC', route: '#/admin', src: '../screenshots/12_admin/01_administration.png' },
+      { cat: 'community', title: 'Paramètres & Identifiants Cloud', route: '#/settings', src: '../screenshots/13_settings/01_settings.png' },
+    ];
+
+    const gallery = document.getElementById('gallery');
+    function render(filter) {
+      gallery.innerHTML = '';
+      SHOTS.filter(s => filter === 'all' || s.cat === filter).forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'shot-card';
+        card.innerHTML = `
+          <img src="${s.src}" alt="${s.title}" loading="lazy" />
+          <div class="shot-meta">
+            <div class="shot-title">${s.title}</div>
+            <div class="shot-route">${s.route}</div>
+          </div>`;
+        card.querySelector('img').addEventListener('click', () => {
+          document.getElementById('lightbox-img').src = s.src;
+          document.getElementById('lightbox').classList.add('open');
+        });
+        gallery.appendChild(card);
+      });
+    }
+    document.getElementById('filters').addEventListener('click', (e) => {
+      if (!e.target.matches('.filter-btn')) return;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      render(e.target.dataset.cat);
+    });
+    render('all');
+  </script>
+</body>
+</html>

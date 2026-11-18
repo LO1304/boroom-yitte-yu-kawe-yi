@@ -1,0 +1,30 @@
+# Environment & Secrets (NEVER commit)
+.env
+.env.*
+!.env.example
+mobile/env.*.json
+
+# Firebase & Apple/Android Signing Keys
+mobile/android/key.properties
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+mobile/android/app/google-services.json
+mobile/ios/Runner/GoogleService-Info.plist
+
+# Flutter / Dart / Gradle / Xcode build outputs
+.dart_tool/
+.packages
+build/
+mobile/build/
+mobile/.dart_tool/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+server/data/
+*.iml
+.idea/
+.DS_Store
