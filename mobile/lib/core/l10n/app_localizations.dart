@@ -97,7 +97,7 @@ class AppStrings {
       'personal_growth': 'Développement Personnel',
       'admin_console': 'Administration',
       'settings': 'Paramètres',
-      'offline_badge': 'Mode Aperçu Local',
+      'offline_badge': 'Cercle Privé',
       'cloud_badge': 'Supabase Connecté',
       'zikr_no_rank_notice':
           'Espace spirituel apaisé : aucun classement ni score de piété.',
@@ -134,7 +134,7 @@ class AppStrings {
       'personal_growth': 'Personal Growth',
       'admin_console': 'Administration',
       'settings': 'Settings',
-      'offline_badge': 'Local Preview Mode',
+      'offline_badge': 'Private Circle',
       'cloud_badge': 'Supabase Connected',
       'zikr_no_rank_notice':
           'Peaceful spiritual space: no rankings, scores, or piety badges.',
@@ -171,7 +171,7 @@ class AppStrings {
       'personal_growth': 'التطوير الذاتي',
       'admin_console': 'الإدارة',
       'settings': 'الإعدادات',
-      'offline_badge': 'وضع المعاينة المحلي',
+      'offline_badge': 'الدائرة الخاصة',
       'cloud_badge': 'متصل بـ Supabase',
       'zikr_no_rank_notice':
           'فضاء روحي هادئ: لا ترتيب ولا نقاط تقوى ولا مقارنة بين الأعضاء.',
@@ -208,7 +208,7 @@ class AppStrings {
       'personal_growth': 'Yar sa bopp',
       'admin_console': 'Njiit yi',
       'settings': 'Paramètre yi',
-      'offline_badge': 'Mode Aperçu Local',
+      'offline_badge': 'Cercle Privé',
       'cloud_badge': 'Supabase Connecté',
       'zikr_no_rank_notice':
           'Bérabu Zikr bi amul classement wala note ngir diine.',

@@ -208,28 +208,17 @@ class DesignStudioSection extends ConsumerWidget {
                   onTap: () =>
                       ref.read(themePaletteProvider.notifier).setPalette(p),
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
+                    duration: const Duration(milliseconds: 180),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [p.primary, p.primaryDeep],
-                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      color: p.primary,
                       border: Border.all(
                         color: selected
-                            ? p.accentBright
-                            : Colors.white.withValues(alpha: 0.16),
-                        width: selected ? 2.5 : 1.0,
+                            ? p.accent
+                            : p.primaryDeep,
+                        width: selected ? 2.0 : 1.0,
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: p.primary.withValues(alpha: selected ? 0.42 : 0.2),
-                          blurRadius: selected ? 18 : 10,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,39 +226,40 @@ class DesignStudioSection extends ConsumerWidget {
                         Row(
                           children: [
                             Container(
-                              width: 24,
-                              height: 24,
+                              width: 22,
+                              height: 22,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [p.meshOrbA, p.accentBright],
-                                ),
+                                color: p.accent,
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.7),
-                                  width: 1.5,
+                                  color: Colors.white.withValues(alpha: 0.65),
+                                  width: 1,
                                 ),
                               ),
                               child: selected
                                   ? const Icon(Icons.check_rounded,
-                                      size: 14, color: Colors.white)
+                                      size: 13, color: Colors.white)
                                   : null,
                             ),
                             const Spacer(),
                             Container(
-                              width: 12,
-                              height: 12,
+                              width: 10,
+                              height: 10,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: p.accentBright,
+                                color: p.canvasLight,
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.4),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 4),
                             Container(
-                              width: 12,
-                              height: 12,
+                              width: 10,
+                              height: 10,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: p.meshOrbA,
+                                color: p.accent,
                               ),
                             ),
                           ],
@@ -344,22 +334,14 @@ class _MiniModelPreview extends StatelessWidget {
           Container(
             height: 18,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(
-                model == UiVisualModel.editorialMinimal ? 4 : 9,
+              borderRadius: BorderRadius.circular(4),
+              color: isDark ? const Color(0xFF161B19) : Colors.white,
+              border: Border(
+                left: BorderSide(color: primary, width: 3),
+                top: BorderSide(color: primary.withValues(alpha: 0.18)),
+                right: BorderSide(color: primary.withValues(alpha: 0.18)),
+                bottom: BorderSide(color: primary.withValues(alpha: 0.18)),
               ),
-              gradient: model == UiVisualModel.editorialMinimal
-                  ? null
-                  : LinearGradient(
-                      colors: model == UiVisualModel.dynamicCommunity
-                          ? [primary, accent]
-                          : [primary, Color.lerp(primary, Colors.black, 0.4)!],
-                    ),
-              color: model == UiVisualModel.editorialMinimal
-                  ? (isDark ? const Color(0xFF1E2430) : Colors.white)
-                  : null,
-              border: model == UiVisualModel.editorialMinimal
-                  ? Border(left: BorderSide(color: primary, width: 3.5))
-                  : null,
             ),
           ),
           const SizedBox(height: 5),

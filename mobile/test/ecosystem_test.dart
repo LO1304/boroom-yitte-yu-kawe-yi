@@ -8,6 +8,8 @@ import 'package:boroom_yitte/app/state/app_providers.dart';
 import 'package:boroom_yitte/core/l10n/app_localizations.dart';
 import 'package:boroom_yitte/core/models/domain_models.dart';
 import 'package:boroom_yitte/core/services/backend_repository.dart';
+import 'package:boroom_yitte/core/services/calendar_export_service.dart';
+import 'package:boroom_yitte/core/services/daily_quotes_catalog.dart';
 import 'package:boroom_yitte/core/services/deep_link_service.dart';
 import 'package:boroom_yitte/core/services/english_open_source_service.dart';
 import 'package:boroom_yitte/core/services/pdf_export_service.dart';
@@ -127,7 +129,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('BOROOM YITTÉ YU KAWÉ YI'), findsOneWidget);
+    expect(find.text('BOROOM YITTÉ'), findsOneWidget);
+    expect(find.text('À LA UNE — DÉBAT DE LA SEMAINE'), findsOneWidget);
+    expect(find.text('Rejoindre le débat →'), findsOneWidget);
+    expect(find.text('PROCHAIN RENDEZ-VOUS'), findsOneWidget);
+    await _scrollTo(tester, find.text('DERNIÈRES CONTRIBUTIONS'));
+    expect(find.text('DERNIÈRES CONTRIBUTIONS'), findsOneWidget);
     expect(find.text('Accueil'), findsOneWidget);
     expect(find.text('Réflexions'), findsOneWidget);
     expect(find.text('Défis'), findsOneWidget);
@@ -776,5 +783,82 @@ void main() {
       find.text('Plaidoyer vocal : Discipline individuelle et bien commun'),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+      'Calendar export, Masalik/Philosopher daily quotes, LanguageTool Coach, and pure free Zikr work cleanly',
+      (tester) async {
+    final ics = CalendarExportService.buildIcsContent(
+      title: 'Réunion Mensuelle',
+      description: 'Ordre du jour communautaire',
+      start: DateTime.utc(2026, 12, 1, 20, 0),
+      location: 'En ligne',
+    );
+    expect(ics, contains('BEGIN:VCALENDAR'));
+    expect(ics, contains('SUMMARY:Réunion Mensuelle'));
+    expect(ics, contains('LOCATION:En ligne'));
+    final gcal = CalendarExportService.buildGoogleCalendarUrl(
+      title: 'Réunion Mensuelle',
+      description: 'Ordre du jour',
+      start: DateTime.utc(2026, 12, 1, 20, 0),
+    );
+    expect(gcal, startsWith('https://calendar.google.com/calendar/render'));
+
+    expect(
+      DailyQuotesCatalog.quotes
+          .any((q) => q.author == 'Cheikh Ahmadou Bamba' && q.sourceWork.contains('Masālik al-Jinān')),
+      isTrue,
+    );
+    expect(
+      DailyQuotesCatalog.quotes.any((q) => q.author.contains('al-Ghazālī')),
+      isTrue,
+    );
+    expect(
+      DailyQuotesCatalog.quotes.any((q) => q.author == 'Épictète'),
+      isTrue,
+    );
+    expect(
+      DailyQuotesCatalog.quotes.any((q) => q.author == 'Sénèque'),
+      isTrue,
+    );
+    expect(
+      DailyQuotesCatalog.quotes.any((q) => q.author == 'Épicure'),
+      isTrue,
+    );
+
+    const ltJson = '''
+    {
+      "matches": [
+        {
+          "message": "Use 'have' instead of 'has'.",
+          "offset": 2,
+          "length": 3,
+          "replacements": [{"value": "have"}],
+          "rule": {"category": {"name": "Grammar"}}
+        }
+      ]
+    }
+    ''';
+    final ltParsed = EnglishOpenSourceService.parseLanguageToolResponse(
+      'I has finished.',
+      ltJson,
+    );
+    expect(ltParsed.correctedText, 'I have finished.');
+    expect(ltParsed.issues.length, 1);
+
+    final coach = EnglishOpenSourceService();
+    final forSinceReply = await coach.askEnglishCoachLive(
+      input: 'Différence entre for et since ?',
+      variant: 'en-GB',
+      cefrLevel: 'B1',
+    );
+    expect(forSinceReply, contains('FOR vs SINCE'));
+    expect(EnglishOpenSourceService.concreteCourses.length, 6);
+
+    await tester.pumpWidget(_wrapScreen(const ZikrScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('صَلَّى اللهُ عَلَى مُحَمَّدٍ'), findsWidgets);
+    expect(find.textContaining('Samedi 20h00'), findsNothing);
+    expect(find.textContaining('Rejoindre le salon audio'), findsNothing);
   });
 }

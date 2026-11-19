@@ -1297,6 +1297,8 @@ class AnnouncementModel {
   final String body;
   final String authorName;
   final DateTime createdAt;
+  final DateTime? eventDate;
+  final String? location;
 
   const AnnouncementModel({
     required this.id,
@@ -1304,6 +1306,8 @@ class AnnouncementModel {
     required this.body,
     required this.authorName,
     required this.createdAt,
+    this.eventDate,
+    this.location,
   });
 
   Map<String, dynamic> toJson() => {
@@ -1312,6 +1316,8 @@ class AnnouncementModel {
         'body': body,
         'author_name': authorName,
         'created_at': createdAt.toIso8601String(),
+        if (eventDate != null) 'event_date': eventDate!.toIso8601String(),
+        if (location != null && location!.isNotEmpty) 'location': location,
       };
 
   factory AnnouncementModel.fromJson(Map<String, dynamic> j) => AnnouncementModel(
@@ -1321,6 +1327,10 @@ class AnnouncementModel {
         authorName: j['author_name']?.toString() ?? 'Administration',
         createdAt:
             DateTime.tryParse(j['created_at']?.toString() ?? '') ?? DateTime.now(),
+        eventDate: j['event_date'] != null
+            ? DateTime.tryParse(j['event_date'].toString())
+            : null,
+        location: j['location']?.toString(),
       );
 }
 
@@ -1929,6 +1939,8 @@ class AppNotificationItem {
   final String? deepLink;
   final bool isRead;
   final DateTime createdAt;
+  final DateTime? eventDate;
+  final String? location;
 
   const AppNotificationItem({
     required this.id,
@@ -1938,6 +1950,8 @@ class AppNotificationItem {
     this.deepLink,
     this.isRead = false,
     required this.createdAt,
+    this.eventDate,
+    this.location,
   });
 
   AppNotificationItem copyWith({bool? isRead}) => AppNotificationItem(
@@ -1948,6 +1962,8 @@ class AppNotificationItem {
         deepLink: deepLink,
         isRead: isRead ?? this.isRead,
         createdAt: createdAt,
+        eventDate: eventDate,
+        location: location,
       );
 
   Map<String, dynamic> toJson() => {
@@ -1958,6 +1974,8 @@ class AppNotificationItem {
         'deep_link': deepLink,
         'is_read': isRead,
         'created_at': createdAt.toIso8601String(),
+        if (eventDate != null) 'event_date': eventDate!.toIso8601String(),
+        if (location != null && location!.isNotEmpty) 'location': location,
       };
 
   factory AppNotificationItem.fromJson(Map<String, dynamic> j) =>
@@ -1970,5 +1988,9 @@ class AppNotificationItem {
         isRead: j['is_read'] == true,
         createdAt: DateTime.tryParse(j['created_at']?.toString() ?? '') ??
             DateTime.now(),
+        eventDate: j['event_date'] != null
+            ? DateTime.tryParse(j['event_date'].toString())
+            : null,
+        location: j['location']?.toString(),
       );
 }

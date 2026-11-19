@@ -80,7 +80,7 @@ final themePaletteProvider =
 
 // UI Visual & Layout Model (4 selectable structural aesthetics)
 class UiVisualModelNotifier extends StateNotifier<UiVisualModel> {
-  UiVisualModelNotifier() : super(UiVisualModel.glassLuxe) {
+  UiVisualModelNotifier() : super(UiVisualModel.editorialMinimal) {
     _load();
   }
 
@@ -1509,14 +1509,18 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
   Future<void> broadcastAnnouncement(
     String title,
     String body,
-    String authorName,
-  ) async {
+    String authorName, {
+    DateTime? eventDate,
+    String? location,
+  }) async {
     final item = AnnouncementModel(
       id: _uuid.v4(),
       title: title,
       body: body,
       authorName: authorName,
       createdAt: DateTime.now(),
+      eventDate: eventDate,
+      location: location?.trim().isNotEmpty == true ? location!.trim() : null,
     );
     final notif = AppNotificationItem(
       id: _uuid.v4(),
@@ -1525,6 +1529,8 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
       category: 'announcement',
       deepLink: '/',
       createdAt: DateTime.now(),
+      eventDate: eventDate,
+      location: item.location,
     );
     state = state.copyWith(
       announcements: [item, ...state.announcements],
@@ -1537,6 +1543,13 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
       title: title,
       body: body,
     );
+  }
+
+  void deleteAnnouncement(String id) {
+    state = state.copyWith(
+      announcements: state.announcements.where((a) => a.id != id).toList(),
+    );
+    _persistSnapshot();
   }
 
   // --- Documentary Knowledge Library (Partie II) ---

@@ -1,709 +1,761 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/state/app_providers.dart';
-import '../../core/config/app_config.dart';
-import '../../core/l10n/app_localizations.dart';
-import '../../core/services/external_link_bridge.dart';
-import '../../core/services/speech_bridge.dart';
+import '../../core/models/domain_models.dart';
+import '../../core/services/calendar_export_service.dart';
+import '../../core/services/daily_quotes_catalog.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/editorial_widgets.dart';
 
-class HomeDashboardScreen extends ConsumerWidget {
+class HomeDashboardScreen extends ConsumerStatefulWidget {
   const HomeDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(authProvider);
+  ConsumerState<HomeDashboardScreen> createState() =>
+      _HomeDashboardScreenState();
+}
+
+class _HomeDashboardScreenState extends ConsumerState<HomeDashboardScreen> {
+  int _quoteOffset = 0;
+
+  @override
+  Widget build(BuildContext context) {
     final eco = ref.watch(ecosystemProvider);
-    final lang = ref.watch(languageProvider);
-    final strings = AppStrings(lang);
+    final profile = ref.watch(authProvider);
     final tokens = AppTheme.tokensOf(context);
-
-    final nextZikr = eco.zikrSessions.first;
-    final remaining = nextZikr.scheduledAt.difference(DateTime.now().toUtc());
-    final days = remaining.inDays.clamp(0, 30);
-    final hours = (remaining.inHours % 24).clamp(0, 23);
-    final unreadNotifs = eco.notifications.where((n) => !n.isRead).length;
-    final nextExtra = eco.extraGroupeMeetings
-        .where((m) => m.status != 'archived')
-        .toList();
-
-    final themeMode = ref.watch(themeModeProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final salawatRatio = eco.salawatMonthlyTarget > 0
-        ? (eco.salawatMonthlyCount / eco.salawatMonthlyTarget).clamp(0.0, 1.0)
-        : 0.0;
+
+    final unreadNotifs = eco.notifications.where((n) => !n.isRead).length;
+    final upcomingExtra = eco.extraGroupeMeetings
+        .where((m) => m.status != 'archived')
+        .toList()
+      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+
+    // Real written & vocal intervention counts for the active weekly debate
+    final activeReflections =
+        eco.reflections.where((r) => !r.isArchived).toList();
+    final writtenInterventions = eco.weeklyTopic.contributions.length +
+        activeReflections.fold<int>(
+          0,
+          (sum, r) => sum + 1 + r.comments.length,
+        );
+    final vocalInterventions = eco.debates
+        .where(
+          (d) =>
+              (d.userAudioPath != null && d.userAudioPath!.trim().isNotEmpty) ||
+              (d.userTranscript != null && d.userTranscript!.trim().isNotEmpty),
+        )
+        .length;
+
+    final closingLabel = _formatWeekClosingDate(DateTime.now());
+    final contributions = _collectLatestContributions(eco);
+
+    final dailyQuote = DailyQuotesCatalog.quoteForDate(
+      DateTime.now().add(Duration(days: _quoteOffset)),
+    );
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: AlignmentDirectional.centerStart,
-          child: Text('BOROOM YITTÉ YU KAWÉ YI'),
+        backgroundColor: tokens.canvas,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        titleSpacing: 20,
+        title: Text(
+          'BOROOM YITTÉ',
+          style: TextStyle(
+            fontFamily: YitteFonts.display,
+            fontFamilyFallback: YitteFonts.fallback,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.1,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         ),
         actions: [
           IconButton(
-            tooltip: isDark ? 'Mode Clair' : 'Mode Sombre',
-            icon: Icon(
-              isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-            ),
-            onPressed: () {
-              final next = (themeMode == ThemeMode.dark ||
-                      (themeMode == ThemeMode.system && isDark))
-                  ? ThemeMode.light
-                  : ThemeMode.dark;
-              ref.read(themeModeProvider.notifier).setMode(next);
-            },
-          ),
-          IconButton(
-            tooltip: 'Studio Thèmes & Modèles',
-            icon: Icon(
-              Icons.palette_rounded,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            onPressed: () => showDesignStudioSheet(context),
-          ),
-          Stack(
-            alignment: Alignment.topRight,
-            children: [
-              IconButton(
-                tooltip: 'Notifications',
-                icon: const Icon(Icons.notifications_none_rounded),
-                onPressed: () => context.push('/notifications'),
-              ),
-              if (unreadNotifs > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: YitteColors.danger,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                    child: Text(
-                      '$unreadNotifs',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
+            tooltip: 'Notifications',
+            onPressed: () => context.push('/notifications'),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_none_rounded, size: 22),
+                if (unreadNotifs > 0)
+                  Positioned(
+                    right: 1,
+                    top: 1,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: YitteColors.gold,
+                        shape: BoxShape.circle,
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
-          IconButton(
-            tooltip: 'Administration',
-            icon: const Icon(Icons.admin_panel_settings_outlined),
-            onPressed: () => context.push('/admin'),
-          ),
-          IconButton(
-            tooltip: 'Paramètres',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.push('/settings'),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              tooltip: 'Profil & Thème',
+              onPressed: () => _openProfileAndThemeSheet(
+                context,
+                profile: profile,
+                isDark: isDark,
+              ),
+              icon: const Icon(Icons.person_outline_rounded, size: 22),
+            ),
           ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
         children: [
-          YitteReveal(
-            order: 0,
-            child: EditorialHeroBanner(
-              eyebrow: AppConfig.isSupabaseConfigured
-                  ? strings.t('cloud_badge')
-                  : 'CERCLE PRIVÉ • BOROOM YITTÉ',
-              title:
-                  '${strings.t('home_welcome')}, ${profile?.fullName ?? "Boroom Yitté"}',
-              subtitle: strings.t('tagline'),
-              trailing: YitteStatusPill(
-                label: profile?.role.labelFr ?? 'Membre',
-                backgroundColor: tokens.visualModel == UiVisualModel.editorialMinimal
-                    ? Theme.of(context).colorScheme.primaryContainer
-                    : Colors.white.withValues(alpha: 0.16),
-                foregroundColor: tokens.visualModel == UiVisualModel.editorialMinimal
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.white,
-              ),
-              actions: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: tokens.visualModel == UiVisualModel.editorialMinimal
-                        ? Theme.of(context).colorScheme.primary
-                        : YitteColors.goldBright,
-                    foregroundColor: tokens.visualModel == UiVisualModel.editorialMinimal
-                        ? Colors.white
-                        : YitteColors.inkDark,
+          // 1. BLOC « À LA UNE — DÉBAT DE LA SEMAINE »
+          _EditorialBlockLabel(
+            label: 'À LA UNE — DÉBAT DE LA SEMAINE',
+            trailing: Text(
+              'S${eco.weeklyTopic.weekNumber} • ${eco.weeklyTopic.year}',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: tokens.goldAccent,
+                    letterSpacing: 1.0,
                   ),
-                  onPressed: () => context.push('/debates'),
-                  icon: const Icon(Icons.mic_rounded, size: 18),
-                  label: Text(strings.t('face_a_face')),
-                ),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: tokens.visualModel == UiVisualModel.editorialMinimal
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.white,
-                    side: BorderSide(
-                      color: tokens.visualModel == UiVisualModel.editorialMinimal
-                          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-                          : Colors.white.withValues(alpha: 0.55),
-                    ),
-                  ),
-                  onPressed: () => context.push('/extra-groupe'),
-                  icon: const Icon(Icons.record_voice_over_outlined, size: 18),
-                  label: const Text('Extra Groupe'),
-                ),
-              ],
             ),
-          ),
-          const SizedBox(height: 14),
-          YitteReveal(
-            order: 1,
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    flex: 6,
-                    child: YitteSurfaceCard(
-                      padding: const EdgeInsets.all(14),
-                      onTap: () => context.push('/zikr'),
-                      child: Row(
-                        children: [
-                          YitteProgressRing(
-                            progress: salawatRatio,
-                            size: 66,
-                            strokeWidth: 7,
-                            color: YitteDomainAccents.spirituality,
-                            child: const SanctuaryPrayerIcon(
-                              size: 24,
-                              color: YitteDomainAccents.spirituality,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  'Ṣalawāt',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${eco.salawatMonthlyCount} / ${eco.salawatMonthlyTarget}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 13.5,
-                                    color: YitteDomainAccents.spirituality,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(99),
-                                  onTap: () => ref
-                                      .read(ecosystemProvider.notifier)
-                                      .incrementSalawat(step: 33),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: YitteDomainAccents.spirituality
-                                          .withValues(alpha: 0.14),
-                                      borderRadius: BorderRadius.circular(99),
-                                    ),
-                                    child: const Text(
-                                      '+33 rapide',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                        color: YitteDomainAccents.spirituality,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 5,
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: _DailyPulseChip(
-                            icon: Icons.emoji_events_rounded,
-                            color: YitteDomainAccents.challenges,
-                            label: 'Challenges',
-                            value:
-                                '${eco.challenges.where((c) => c.userSubmission != null).length}/${eco.challenges.length} relevés',
-                            onTap: () => context.go('/challenges'),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: _DailyPulseChip(
-                            icon: Icons.translate_rounded,
-                            color: YitteDomainAccents.english,
-                            label: 'English A1–C2',
-                            value:
-                                '${eco.dailyVocab.where((w) => w.mastered).length}/${eco.dailyVocab.length} mots',
-                            onTap: () => context.push('/english-club'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (profile == null) ...[
-            YitteReveal(
-              order: 1,
-              child: YitteSurfaceCard(
-                color: tokens.goldSurface,
-                borderColor: tokens.borderAccent,
-                onTap: () => context.push('/auth'),
-                child: Row(
-                  children: [
-                    const CircleAvatar(
-                      backgroundColor: YitteColors.emeraldSoft,
-                      child: Icon(Icons.badge_outlined, color: YitteColors.emerald),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Membres du Groupe : Nom Complet',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Connectez-vous avec votre nom complet pour publier et accéder aux espaces réservés du groupe.',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: () => context.push('/auth'),
-                      child: const Text('Connexion'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-          // Pensée du jour (strictement si contenu validé disponible - Partie VI Section 9)
-          if (eco.validatedDailyThought != null) ...[
-            YitteReveal(
-              order: 1,
-              child: YitteSurfaceCard(
-                color: tokens.goldSurface,
-                borderColor: tokens.borderAccent,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const YitteStatusPill(
-                      icon: Icons.lightbulb_outline_rounded,
-                      label: 'Pensée du Jour Validée',
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      eco.validatedDailyThought!,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-          if (eco.announcements.isNotEmpty) ...[
-            const SectionHeader(title: 'Annonces de la Communauté'),
-            const SizedBox(height: 8),
-            ...eco.announcements.take(3).map(
-                  (a) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: YitteSurfaceCard(
-                      color: tokens.goldSurface,
-                      borderColor: tokens.borderAccent,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.campaign_rounded, color: tokens.goldAccent),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(a.title,
-                                    style: Theme.of(context).textTheme.titleMedium),
-                                const SizedBox(height: 3),
-                                Text('${a.body}\nPar ${a.authorName}',
-                                    style: Theme.of(context).textTheme.bodyMedium),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            const SizedBox(height: 10),
-          ],
-          SectionHeader(
-            title: strings.t('quick_modules'),
-            actionLabel: 'Thèmes & Modèles',
-            onAction: () => showDesignStudioSheet(context),
           ),
           const SizedBox(height: 10),
-          YitteReveal(
-            order: 2,
-            child: GridView.count(
-              crossAxisCount: MediaQuery.of(context).size.width >= 900
-                  ? 4
-                  : (MediaQuery.of(context).size.width > 640 ? 3 : 2),
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.08,
-              children: [
-                _SanctuaryModuleTile(
-                  icon: Icons.folder_copy_rounded,
-                  accentColor: YitteDomainAccents.knowledge,
-                  title: 'Bibliothèque Docs',
-                  subtitle: '5 domaines & résumés vérifiés',
-                  onTap: () => context.push('/documents'),
-                ),
-                _SanctuaryModuleTile(
-                  icon: Icons.groups_2_rounded,
-                  accentColor: YitteDomainAccents.community,
-                  title: 'Extra Groupe',
-                  subtitle: 'Rencontres mensuelles & Q&A',
-                  onTap: () => context.push('/extra-groupe'),
-                ),
-                _SanctuaryModuleTile(
-                  icon: Icons.record_voice_over_rounded,
-                  accentColor: YitteDomainAccents.debates,
-                  title: 'Yitté Face-à-Face',
-                  subtitle: 'Débats vocaux & Grille 100 pts',
-                  onTap: () => context.push('/debates'),
-                ),
-                _SanctuaryModuleTile(
-                  icon: Icons.emoji_events_rounded,
-                  accentColor: YitteDomainAccents.challenges,
-                  title: 'Yitté Quiz Arena',
-                  subtitle: 'Tournois 8/16/32 & 1v1',
-                  onTap: () => context.push('/quiz-arena'),
-                ),
-                _SanctuaryModuleTile(
-                  icon: Icons.mosque_rounded,
-                  accentColor: YitteDomainAccents.spirituality,
-                  customIcon: const SanctuaryPrayerIcon(
-                    size: 26,
-                    color: Colors.white,
-                  ),
-                  title: 'Yitté Zikr',
-                  subtitle: 'Salat, Rappel & Tasbih',
-                  onTap: () => context.push('/zikr'),
-                ),
-                _SanctuaryModuleTile(
-                  icon: Icons.translate_rounded,
-                  accentColor: YitteDomainAccents.english,
-                  title: 'English Club',
-                  subtitle: 'Programme A1–C2 & Dico API',
-                  onTap: () => context.push('/english-club'),
-                ),
-                _SanctuaryModuleTile(
-                  icon: Icons.work_rounded,
-                  accentColor: YitteDomainAccents.career,
-                  title: 'Yitté Professionnel',
-                  subtitle: 'Tous métiers, CV & Projets',
-                  onTap: () => context.push('/professional'),
-                ),
-                _SanctuaryModuleTile(
-                  icon: Icons.lock_person_rounded,
-                  accentColor: YitteDomainAccents.growth,
-                  title: 'Développement Personnel',
-                  subtitle: 'Journal privé, Chrono & Lectures',
-                  onTap: () => context.push('/personal-growth'),
-                ),
-              ],
-            ),
+          _WeeklyDebateSignatureCard(
+            weekLabel:
+                'SEMAINE ${eco.weeklyTopic.weekNumber} • ${eco.weeklyTopic.year}',
+            title: eco.weeklyTopic.title,
+            introduction: eco.weeklyTopic.introduction,
+            writtenCount: writtenInterventions,
+            vocalCount: vocalInterventions,
+            closingLabel: closingLabel,
+            onJoinDebate: () => context.go('/reflections'),
           ),
-          if (nextExtra.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            SectionHeader(
-              title: 'Prochaine Rencontre Extra Groupe',
-              actionLabel: 'Ouvrir',
-              onAction: () => context.push('/extra-groupe'),
-            ),
-            const SizedBox(height: 8),
-            YitteSurfaceCard(
-              borderColor: tokens.borderAccent,
-              onTap: () => context.push('/extra-groupe'),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  YitteStatusPill(
-                    icon: Icons.record_voice_over_rounded,
-                    label: 'Invité : ${nextExtra.first.guest.fullName}',
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    nextExtra.first.theme,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Préparez vos questions avant la session mensuelle.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
+
+          const SizedBox(height: 28),
+
+          // 2. BLOC « PROCHAIN RENDEZ-VOUS »
+          _EditorialBlockLabel(
+            label: 'PROCHAIN RENDEZ-VOUS',
+            trailing: InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () => _openQuickAnnouncementDialog(
+                context,
+                profile?.fullName ?? 'Membre',
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  '+ Annonce',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                ),
               ),
             ),
-          ],
-          const SizedBox(height: 18),
-          SectionHeader(
-            title: 'Groupe WhatsApp de la Communauté',
-            actionLabel: 'Pont & Exports',
-            onAction: () => context.go('/community'),
           ),
-          const SizedBox(height: 8),
-          YitteSurfaceCard(
-            onTap: () {
-              if (eco.whatsappInviteUrl != null) {
-                ExternalLinkBridge.openUrl(eco.whatsappInviteUrl!);
-              } else {
-                context.go('/community');
+          const SizedBox(height: 10),
+          _NextEventCompactCard(
+            upcomingExtra: upcomingExtra.isNotEmpty ? upcomingExtra.first : null,
+            pinnedAnnouncement:
+                eco.announcements.isNotEmpty ? eco.announcements.first : null,
+            onAskQuestion: () => context.push('/extra-groupe'),
+            onJoinZikr: () => context.push('/zikr'),
+            onExportCalendar: ({
+              required String title,
+              required String description,
+              required DateTime start,
+              String? location,
+            }) async {
+              final ok = await CalendarExportService.addEventToCalendar(
+                title: title,
+                description: description,
+                start: start,
+                location: location ?? 'BOROOM YITTÉ YU KAWÉ YI',
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      ok
+                          ? 'Événement exporté (.ics) — prêt à ajouter à votre agenda.'
+                          : 'Ouverture de votre agenda indisponible sur cet appareil.',
+                    ),
+                  ),
+                );
               }
             },
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  backgroundColor: YitteColors.emeraldSoft,
-                  child: Icon(Icons.chat_rounded, color: YitteColors.emerald),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(eco.whatsappGroupName,
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 3),
-                      Text(
-                        eco.whatsappInviteUrl != null
-                            ? 'Lien officiel actif — appuyez pour ouvrir WhatsApp ou partager la structure.'
-                            : 'Configurez votre lien chat.whatsapp.com dans Admin/Communauté pour ouvrir le groupe en un clic.',
-                        style: Theme.of(context).textTheme.bodyMedium,
+          ),
+
+          const SizedBox(height: 28),
+
+          // 3. BLOC « DERNIÈRES CONTRIBUTIONS »
+          _EditorialBlockLabel(
+            label: 'DERNIÈRES CONTRIBUTIONS',
+            trailing: InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () => context.go('/reflections'),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  'Tout voir',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
                       ),
-                    ],
-                  ),
                 ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: () {
-                    if (eco.whatsappInviteUrl != null) {
-                      ExternalLinkBridge.openUrl(eco.whatsappInviteUrl!);
-                    } else {
-                      context.go('/community');
-                    }
-                  },
-                  child: Text(eco.whatsappInviteUrl != null ? 'Ouvrir' : 'Lier'),
-                ),
-              ],
+              ),
             ),
           ),
-          const SizedBox(height: 18),
-          SectionHeader(
-            title: 'Prochain Rassemblement Zikr',
-            actionLabel: 'Rejoindre',
-            onAction: () => context.push('/zikr'),
-          ),
           const SizedBox(height: 8),
-          YitteSurfaceCard(
-            onTap: () => context.push('/zikr'),
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  backgroundColor: YitteColors.emeraldSoft,
-                  child: Icon(Icons.mosque_rounded, color: YitteColors.emerald),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(nextZikr.title,
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 3),
-                      Text(
-                        'Dans ${days}j ${hours}h • ${nextZikr.recurrenceLabel}\n${strings.t('zikr_no_rank_notice')}',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right_rounded),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          SectionHeader(
-            title: 'Sujet Hebdomadaire — Semaine ${eco.weeklyTopic.weekNumber}',
-            actionLabel: 'Contribuer',
-            onAction: () => context.go('/reflections'),
-          ),
-          const SizedBox(height: 8),
-          YitteSurfaceCard(
-            onTap: () => context.go('/reflections'),
-            child: Column(
+          if (contributions.isEmpty)
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  eco.weeklyTopic.title,
-                  style: Theme.of(context).textTheme.titleMedium,
+                Divider(height: 1, thickness: 1, color: tokens.borderSubtle),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Aucune contribution publiée cette semaine. Partagez la première réflexion du cercle.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: () => context.go('/reflections'),
+                        child: const Text('Contribuer'),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  eco.weeklyTopic.introduction,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 10),
-                YitteStatusPill(
-                  label:
-                      '${eco.weeklyTopic.contributions.length} contribution(s) • Validation éditoriale',
-                ),
+                Divider(height: 1, thickness: 1, color: tokens.borderSubtle),
+              ],
+            )
+          else
+            Column(
+              children: [
+                Divider(height: 1, thickness: 1, color: tokens.borderSubtle),
+                for (int i = 0; i < contributions.length; i++) ...[
+                  _EditorialContributionRow(
+                    item: contributions[i],
+                    onTap: () {
+                      final route = contributions[i].route;
+                      if (route == '/reflections') {
+                        context.go(route);
+                      } else {
+                        context.push(route);
+                      }
+                    },
+                  ),
+                  Divider(height: 1, thickness: 1, color: tokens.borderSubtle),
+                ],
               ],
             ),
+
+          // Note éditoriale discrète : Pensée du jour (Masālik al-Jinān / Classiques)
+          const SizedBox(height: 28),
+          _EditorialDailyQuoteFoot(
+            quote: dailyQuote,
+            customThought: eco.validatedDailyThought,
+            onNext: () => setState(() => _quoteOffset++),
+            onShare: () async {
+              final text = eco.validatedDailyThought != null &&
+                      eco.validatedDailyThought!.trim().isNotEmpty
+                  ? '« ${eco.validatedDailyThought!.trim()} »\n— BOROOM YITTÉ YU KAWÉ YI'
+                  : dailyQuote.formatForShare();
+              final uri = Uri.parse(
+                'https://wa.me/?text=${Uri.encodeComponent(text)}',
+              );
+              final ok = await launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+              );
+              if (!ok) {
+                await Clipboard.setData(ClipboardData(text: text));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Citation copiée pour le partage.'),
+                    ),
+                  );
+                }
+              }
+            },
           ),
-          const SizedBox(height: 18),
-          SectionHeader(
-            title: 'Défis en Cours & Activités Récentes',
-            actionLabel: 'Voir défis',
-            onAction: () => context.go('/challenges'),
+        ],
+      ),
+    );
+  }
+
+  List<_HomeContributionEntry> _collectLatestContributions(
+    EcosystemState eco,
+  ) {
+    final items = <_HomeContributionEntry>[];
+
+    final reflections = eco.reflections.where((r) => !r.isArchived).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    if (reflections.isNotEmpty) {
+      final first = reflections.first;
+      items.add(
+        _HomeContributionEntry(
+          category: 'RÉFLEXION',
+          title: first.title,
+          excerpt: first.body.replaceAll('\n', ' ').trim(),
+          meta: 'Par ${first.authorName} • ${_formatShortDate(first.createdAt)}',
+          route: '/reflections',
+        ),
+      );
+    }
+
+    if (eco.weeklyTopic.summary != null &&
+        eco.weeklyTopic.summary!.summaryMarkdown.trim().isNotEmpty) {
+      final s = eco.weeklyTopic.summary!;
+      items.add(
+        _HomeContributionEntry(
+          category: 'SYNTHÈSE',
+          title: s.title,
+          excerpt: s.summaryMarkdown.replaceAll('\n', ' ').trim(),
+          meta: s.reviewedByName != null
+              ? 'Validée par ${s.reviewedByName}'
+              : 'Synthèse hebdomadaire',
+          route: '/reflections',
+        ),
+      );
+    } else if (reflections.length >= 2) {
+      final second = reflections[1];
+      items.add(
+        _HomeContributionEntry(
+          category: 'RÉFLEXION',
+          title: second.title,
+          excerpt: second.body.replaceAll('\n', ' ').trim(),
+          meta:
+              'Par ${second.authorName} • ${_formatShortDate(second.createdAt)}',
+          route: '/reflections',
+        ),
+      );
+    }
+
+    if (eco.careerOpportunities.isNotEmpty) {
+      final opp = eco.careerOpportunities.first;
+      items.add(
+        _HomeContributionEntry(
+          category: 'OPPORTUNITÉ',
+          title: opp.title,
+          excerpt: opp.description.replaceAll('\n', ' ').trim(),
+          meta: '${opp.organization} • ${opp.location}',
+          route: '/professional',
+        ),
+      );
+    } else if (eco.libraryDocuments.isNotEmpty) {
+      final doc = eco.libraryDocuments.first;
+      items.add(
+        _HomeContributionEntry(
+          category: 'DOCUMENT',
+          title: doc.title,
+          excerpt: doc.description.trim().isNotEmpty
+              ? doc.description.trim()
+              : doc.domain,
+          meta: 'Par ${doc.authorOrContributor} • ${doc.format.toUpperCase()}',
+          route: '/documents',
+        ),
+      );
+    } else if (reflections.length >= 3) {
+      final third = reflections[2];
+      items.add(
+        _HomeContributionEntry(
+          category: 'RÉFLEXION',
+          title: third.title,
+          excerpt: third.body.replaceAll('\n', ' ').trim(),
+          meta: 'Par ${third.authorName} • ${_formatShortDate(third.createdAt)}',
+          route: '/reflections',
+        ),
+      );
+    }
+
+    // Backfill up to 3 if more reflections/opportunities exist
+    if (items.length < 3 && reflections.length > 1) {
+      for (final r in reflections.skip(1)) {
+        if (items.length >= 3) break;
+        if (items.any((e) => e.title == r.title)) continue;
+        items.add(
+          _HomeContributionEntry(
+            category: 'RÉFLEXION',
+            title: r.title,
+            excerpt: r.body.replaceAll('\n', ' ').trim(),
+            meta: 'Par ${r.authorName} • ${_formatShortDate(r.createdAt)}',
+            route: '/reflections',
           ),
-          const SizedBox(height: 8),
-          YitteSurfaceCard(
-            onTap: () => context.go('/challenges'),
-            child: Row(
+        );
+      }
+    }
+
+    return items.take(3).toList();
+  }
+
+  Future<void> _openProfileAndThemeSheet(
+    BuildContext context, {
+    required UserProfile? profile,
+    required bool isDark,
+  }) async {
+    final tokens = AppTheme.tokensOf(context);
+    final themeMode = ref.read(themeModeProvider);
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                const CircleAvatar(
-                  backgroundColor: YitteColors.goldSoft,
-                  child: Icon(Icons.psychology_outlined, color: YitteColors.gold),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${eco.challenges.where((c) => c.userSubmission == null).length} défi(s) intellectuel(s) ouvert(s)',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                        profile?.fullName ?? 'Membre BOROOM YITTÉ',
+                        style: Theme.of(ctx).textTheme.titleLarge,
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       Text(
-                        eco.reflections.isNotEmpty
-                            ? 'Dernière réflexion : ${eco.reflections.first.title}'
-                            : 'Publiez votre première réflexion ou relevez un défi.',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium,
+                        profile?.role.labelFr ?? 'Accès invité',
+                        style: Theme.of(ctx).textTheme.bodyMedium,
                       ),
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right_rounded),
+                IconButton(
+                  tooltip: 'Fermer',
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: tokens.borderSubtle),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                size: 20,
+              ),
+              title: Text(isDark ? 'Passer en mode Clair' : 'Passer en mode Sombre'),
+              onTap: () {
+                final next = (themeMode == ThemeMode.dark ||
+                        (themeMode == ThemeMode.system && isDark))
+                    ? ThemeMode.light
+                    : ThemeMode.dark;
+                ref.read(themeModeProvider.notifier).setMode(next);
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.tune_outlined, size: 20),
+              title: const Text('Thèmes & Apparence'),
+              onTap: () {
+                Navigator.pop(ctx);
+                showDesignStudioSheet(context);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.person_outline_rounded, size: 20),
+              title: Text(profile == null ? 'Connexion membre' : 'Compte & Profil'),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.push('/auth');
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.admin_panel_settings_outlined, size: 20),
+              title: const Text('Administration'),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.push('/admin');
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.settings_outlined, size: 20),
+              title: const Text('Paramètres'),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.push('/settings');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openQuickAnnouncementDialog(
+    BuildContext context,
+    String authorName,
+  ) async {
+    final titleCtrl = TextEditingController();
+    final bodyCtrl = TextEditingController();
+    final locationCtrl = TextEditingController();
+    DateTime? selectedDate;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Publier une annonce'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Titre de l’annonce *',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: bodyCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Détails essentiels',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: locationCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Lieu ou lien (optionnel)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final now = DateTime.now();
+                    final date = await showDatePicker(
+                      context: ctx,
+                      initialDate: selectedDate ?? now.add(const Duration(days: 1)),
+                      firstDate: now.subtract(const Duration(days: 1)),
+                      lastDate: now.add(const Duration(days: 365)),
+                    );
+                    if (date == null || !ctx.mounted) return;
+                    final time = await showTimePicker(
+                      context: ctx,
+                      initialTime: const TimeOfDay(hour: 20, minute: 0),
+                    );
+                    setDialogState(() {
+                      selectedDate = DateTime(
+                        date.year,
+                        date.month,
+                        date.day,
+                        time?.hour ?? 20,
+                        time?.minute ?? 0,
+                      );
+                    });
+                  },
+                  icon: const Icon(Icons.calendar_today_outlined, size: 17),
+                  label: Text(
+                    selectedDate == null
+                        ? 'Associer une date (Agenda 1 clic)'
+                        : _formatFrenchDateTime(selectedDate!),
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          SectionHeader(
-            title: 'Vocabulaire Anglais (${eco.dailyVocab.length} mots)',
-            actionLabel: 'Tout explorer',
-            onAction: () => context.push('/english-club'),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 124,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: eco.dailyVocab.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 10),
-              itemBuilder: (context, i) {
-                final w = eco.dailyVocab[i];
-                return SizedBox(
-                  width: 215,
-                  child: YitteSurfaceCard(
-                    padding: const EdgeInsets.all(12),
-                    onTap: () => context.push('/english-club'),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                w.word,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              icon: const Icon(Icons.volume_up_rounded, size: 17),
-                              onPressed: () => SpeechBridge.speak(w.word),
-                            ),
-                            const SizedBox(width: 4),
-                            YitteStatusPill(label: w.cefrLevel),
-                          ],
-                        ),
-                        Text(
-                          w.phoneticUk,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          w.definitionFr,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 11.5),
-                        ),
-                      ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final t = titleCtrl.text.trim();
+                if (t.isEmpty) return;
+                ref.read(ecosystemProvider.notifier).broadcastAnnouncement(
+                      t,
+                      bodyCtrl.text.trim(),
+                      authorName,
+                      eventDate: selectedDate,
+                      location: locationCtrl.text.trim().isEmpty
+                          ? null
+                          : locationCtrl.text.trim(),
+                    );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Annonce publiée sur l’Accueil et dans Notifications.',
                     ),
                   ),
                 );
               },
+              child: const Text('Publier'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditorialBlockLabel extends StatelessWidget {
+  final String label;
+  final Widget? trailing;
+
+  const _EditorialBlockLabel({required this.label, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  letterSpacing: 1.35,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        ?trailing,
+      ],
+    );
+  }
+}
+
+class _WeeklyDebateSignatureCard extends StatelessWidget {
+  final String weekLabel;
+  final String title;
+  final String introduction;
+  final int writtenCount;
+  final int vocalCount;
+  final String closingLabel;
+  final VoidCallback onJoinDebate;
+
+  const _WeeklyDebateSignatureCard({
+    required this.weekLabel,
+    required this.title,
+    required this.introduction,
+    required this.writtenCount,
+    required this.vocalCount,
+    required this.closingLabel,
+    required this.onJoinDebate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: YitteColors.emerald,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: YitteColors.gold, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            weekLabel,
+            style: const TextStyle(
+              fontFamily: YitteFonts.ui,
+              fontFamilyFallback: YitteFonts.fallback,
+              color: YitteColors.gold,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontFamily: YitteFonts.display,
+              fontFamilyFallback: YitteFonts.fallback,
+              color: YitteColors.ivory,
+              fontSize: 23,
+              fontWeight: FontWeight.w700,
+              height: 1.24,
+              letterSpacing: -0.2,
+            ),
+          ),
+          if (introduction.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              introduction.trim(),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: YitteFonts.ui,
+                fontFamilyFallback: YitteFonts.fallback,
+                color: YitteColors.ivory.withValues(alpha: 0.84),
+                fontSize: 13.5,
+                height: 1.5,
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          Container(
+            height: 1,
+            color: YitteColors.gold.withValues(alpha: 0.30),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _SignatureMetric(
+                icon: Icons.edit_note_outlined,
+                label: '$writtenCount écrite${writtenCount > 1 ? "s" : ""}',
+              ),
+              _SignatureMetric(
+                icon: Icons.mic_none_rounded,
+                label: '$vocalCount vocale${vocalCount > 1 ? "s" : ""}',
+              ),
+              _SignatureMetric(
+                icon: Icons.schedule_outlined,
+                label: 'Clôture : $closingLabel',
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: onJoinDebate,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: YitteColors.gold,
+                foregroundColor: YitteColors.inkDark,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                textStyle: const TextStyle(
+                  fontFamily: YitteFonts.ui,
+                  fontFamilyFallback: YitteFonts.fallback,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              child: const Text('Rejoindre le débat →'),
             ),
           ),
         ],
@@ -712,145 +764,155 @@ class HomeDashboardScreen extends ConsumerWidget {
   }
 }
 
-class _DailyPulseChip extends StatelessWidget {
+class _SignatureMetric extends StatelessWidget {
   final IconData icon;
-  final Color color;
   final String label;
-  final String value;
-  final VoidCallback onTap;
 
-  const _DailyPulseChip({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.value,
-    required this.onTap,
+  const _SignatureMetric({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: YitteColors.gold),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: YitteFonts.ui,
+            fontFamilyFallback: YitteFonts.fallback,
+            color: YitteColors.ivory.withValues(alpha: 0.92),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NextEventCompactCard extends StatelessWidget {
+  final ExtraGroupeMeetingModel? upcomingExtra;
+  final AnnouncementModel? pinnedAnnouncement;
+  final VoidCallback onAskQuestion;
+  final VoidCallback onJoinZikr;
+  final Future<void> Function({
+    required String title,
+    required String description,
+    required DateTime start,
+    String? location,
+  }) onExportCalendar;
+
+  const _NextEventCompactCard({
+    required this.upcomingExtra,
+    required this.pinnedAnnouncement,
+    required this.onAskQuestion,
+    required this.onJoinZikr,
+    required this.onExportCalendar,
   });
 
   @override
   Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
+    final primary = Theme.of(context).colorScheme.primary;
+    final hasExtra = upcomingExtra != null;
+    final nextSat = _nextSaturdayAt20Gmt();
+
+    final eventTitle = hasExtra
+        ? upcomingExtra!.theme
+        : 'Zikr collectif — صَلَّى اللهُ عَلَى مُحَمَّدٍ';
+    final eventDate = hasExtra ? upcomingExtra!.scheduledAt : nextSat;
+    final eventMeta = hasExtra
+        ? 'Invité : ${upcomingExtra!.guest.fullName} (${upcomingExtra!.guest.titleOrRole})'
+        : 'Tous les samedis à 20h00 GMT • Salon spirituel communautaire';
+    final eventTag = hasExtra ? 'EXTRA GROUPE' : 'ZIKR COLLECTIF';
+    final ctaLabel = hasExtra ? 'Poser une question' : 'Rejoindre le salon';
+
     return YitteSurfaceCard(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-      onTap: onTap,
-      child: Row(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          YitteIconBadge(
-            icon: icon,
-            color: color,
-            size: 36,
-            iconSize: 18,
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+          if (pinnedAnnouncement != null) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12.5,
+                Icon(Icons.campaign_outlined, size: 16, color: tokens.goldAccent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    pinnedAnnouncement!.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  onPressed: () => onExportCalendar(
+                    title: pinnedAnnouncement!.title,
+                    description: pinnedAnnouncement!.body,
+                    start: pinnedAnnouncement!.eventDate ??
+                        DateTime.now().add(const Duration(days: 1)),
+                    location: pinnedAnnouncement!.location,
+                  ),
+                  child: const Text('+ Agenda'),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SanctuaryModuleTile extends StatelessWidget {
-  final IconData icon;
-  final Color? accentColor;
-  final Widget? customIcon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _SanctuaryModuleTile({
-    required this.icon,
-    this.accentColor,
-    this.customIcon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = accentColor ?? Theme.of(context).colorScheme.primary;
-    final tokens = AppTheme.tokensOf(context);
-    final isMinimal = tokens.visualModel == UiVisualModel.editorialMinimal;
-    return YitteSurfaceCard(
-      padding: const EdgeInsets.all(14),
-      onTap: onTap,
-      child: Stack(
-        children: [
-          Positioned(
-            right: -10,
-            bottom: -12,
-            child: IgnorePointer(
-              child: Icon(
-                icon,
-                size: 62,
-                color: accent.withValues(alpha: isMinimal ? 0.04 : 0.075),
-              ),
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            Divider(height: 20, thickness: 1, color: tokens.borderSubtle),
+          ],
+          Row(
             children: [
-              Row(
-                children: [
-                  YitteIconBadge(
-                    icon: icon,
-                    customIcon: customIcon != null && isMinimal
-                        ? SanctuaryPrayerIcon(size: 26, color: accent)
-                        : customIcon,
-                    color: accent,
-                    size: 50,
-                    iconSize: 25,
-                  ),
-                  const Spacer(),
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.10),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.arrow_outward_rounded,
-                      size: 15,
-                      color: accent,
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
               Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
+                eventTag,
+                style: TextStyle(
+                  fontFamily: YitteFonts.ui,
+                  fontFamilyFallback: YitteFonts.fallback,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                  color: tokens.goldAccent,
+                ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(width: 8),
               Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 11.5),
+                '•  ${_formatFrenchDateTime(eventDate)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            eventTitle,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            eventMeta,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              ElevatedButton(
+                onPressed: hasExtra ? onAskQuestion : onJoinZikr,
+                child: Text(ctaLabel),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () => onExportCalendar(
+                  title: eventTitle,
+                  description: eventMeta,
+                  start: eventDate,
+                  location: hasExtra ? upcomingExtra!.practicalInfo : 'En ligne (GMT)',
+                ),
+                icon: Icon(Icons.event_available_outlined, size: 16, color: primary),
+                label: const Text('Agenda'),
               ),
             ],
           ),
@@ -858,4 +920,204 @@ class _SanctuaryModuleTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _HomeContributionEntry {
+  final String category;
+  final String title;
+  final String excerpt;
+  final String meta;
+  final String route;
+
+  const _HomeContributionEntry({
+    required this.category,
+    required this.title,
+    required this.excerpt,
+    required this.meta,
+    required this.route,
+  });
+}
+
+class _EditorialContributionRow extends StatelessWidget {
+  final _HomeContributionEntry item;
+  final VoidCallback onTap;
+
+  const _EditorialContributionRow({
+    required this.item,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
+    final isGoldTag = item.category == 'SYNTHÈSE' || item.category == 'OPPORTUNITÉ';
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.category,
+                    style: TextStyle(
+                      fontFamily: YitteFonts.ui,
+                      fontFamilyFallback: YitteFonts.fallback,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                      color: isGoldTag
+                          ? tokens.goldAccent
+                          : Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  if (item.excerpt.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      item.excerpt,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                  const SizedBox(height: 5),
+                  Text(
+                    item.meta,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Padding(
+              padding: const EdgeInsets.only(top: 18),
+              child: Icon(
+                Icons.arrow_forward_rounded,
+                size: 16,
+                color: tokens.goldAccent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditorialDailyQuoteFoot extends StatelessWidget {
+  final DailyWisdomQuote quote;
+  final String? customThought;
+  final VoidCallback onNext;
+  final VoidCallback onShare;
+
+  const _EditorialDailyQuoteFoot({
+    required this.quote,
+    required this.customThought,
+    required this.onNext,
+    required this.onShare,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
+    final hasCustom = customThought != null && customThought!.trim().isNotEmpty;
+    final body = hasCustom ? customThought!.trim() : quote.text;
+    final attribution = hasCustom
+        ? 'Pensée éditoriale du cercle'
+        : '${quote.author} — ${quote.sourceWork}';
+
+    return Container(
+      padding: const EdgeInsets.only(top: 16),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: tokens.borderSubtle, width: 1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '« $body »',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontSize: 16,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w400,
+                  height: 1.5,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  attribution,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: tokens.goldAccent,
+                      ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Autre citation',
+                visualDensity: VisualDensity.compact,
+                onPressed: onNext,
+                icon: const Icon(Icons.refresh_rounded, size: 17),
+              ),
+              IconButton(
+                tooltip: 'Partager',
+                visualDensity: VisualDensity.compact,
+                onPressed: onShare,
+                icon: const Icon(Icons.ios_share_outlined, size: 17),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatWeekClosingDate(DateTime now) {
+  final daysUntilSunday = DateTime.sunday - now.weekday;
+  final sunday = now.add(Duration(days: daysUntilSunday >= 0 ? daysUntilSunday : 0));
+  return 'Dim. ${_formatShortDate(sunday)}';
+}
+
+DateTime _nextSaturdayAt20Gmt() {
+  final now = DateTime.now().toUtc();
+  final diff = (DateTime.saturday - now.weekday + 7) % 7;
+  final targetDay = now.add(Duration(days: diff == 0 && now.hour >= 20 ? 7 : diff));
+  return DateTime.utc(targetDay.year, targetDay.month, targetDay.day, 20, 0);
+}
+
+String _formatShortDate(DateTime d) {
+  const months = [
+    'janv.',
+    'févr.',
+    'mars',
+    'avr.',
+    'mai',
+    'juin',
+    'juil.',
+    'août',
+    'sept.',
+    'oct.',
+    'nov.',
+    'déc.',
+  ];
+  return '${d.day} ${months[d.month - 1]}';
+}
+
+String _formatFrenchDateTime(DateTime d) {
+  final hh = d.hour.toString().padLeft(2, '0');
+  final mm = d.minute.toString().padLeft(2, '0');
+  return '${_formatShortDate(d)} à ${hh}h$mm';
 }

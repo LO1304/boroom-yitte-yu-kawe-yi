@@ -99,10 +99,10 @@ class _DocumentsLibraryScreenState
           const YitteReveal(
             order: 0,
             child: EditorialHeroBanner(
-              eyebrow: 'SAVOIR ORGANISÉ • ZÉRO CONTENU INVENTÉ',
+              eyebrow: 'ARCHIVES & BIBLIOTHÈQUE',
               title: 'Archives & Ressources Documentaires',
               subtitle:
-                  '5 domaines fondamentaux, 40 sous-catégories, import de fichiers réels et résumés fidèles établis exclusivement à partir du texte source.',
+                  '5 domaines fondamentaux, 40 sous-catégories, archivage documentaire et synthèses structurées.',
             ),
           ),
           const SizedBox(height: 16),
@@ -234,7 +234,7 @@ class _DocumentsLibraryScreenState
               icon: Icons.folder_copy_outlined,
               title: 'Aucun document enregistré dans cette vue',
               description:
-                  'Conformément à la charte anti-invention, aucun document factice n’est généré automatiquement. Importez un vrai fichier (PDF, TXT, MD, DOCX, PPTX, image) ou ajoutez un texte source.',
+                  'Importez un document (PDF, TXT, MD, DOCX, PPTX ou image) ou collez votre texte pour enrichir la bibliothèque du cercle.',
               actionLabel: 'Ajouter un vrai document',
               onAction: () => _openAddDocumentDialog(context),
             )
@@ -524,7 +524,7 @@ class _AddDocumentDialogState extends ConsumerState<_AddDocumentDialog> {
               decoration: const InputDecoration(
                 labelText: 'Texte extrait ou contenu textuel source',
                 hintText:
-                    'Utilisé exclusivement pour la consultation et le résumé fidèle sans invention.',
+                    'Collez le texte pour activer la recherche plein texte et la synthèse structurée.',
               ),
             ),
             SwitchListTile(

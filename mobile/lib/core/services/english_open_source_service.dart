@@ -38,6 +38,96 @@ class OpenDictionaryEntry {
       : (usAudioUrl ?? ukAudioUrl);
 }
 
+class LanguageToolIssue {
+  final String message;
+  final String badText;
+  final int offset;
+  final int length;
+  final List<String> replacements;
+  final String category;
+
+  const LanguageToolIssue({
+    required this.message,
+    required this.badText,
+    required this.offset,
+    required this.length,
+    required this.replacements,
+    required this.category,
+  });
+}
+
+class LanguageToolCheckResult {
+  final String originalText;
+  final String correctedText;
+  final List<LanguageToolIssue> issues;
+  final bool usedOnlineApi;
+
+  const LanguageToolCheckResult({
+    required this.originalText,
+    required this.correctedText,
+    required this.issues,
+    required this.usedOnlineApi,
+  });
+}
+
+class CourseComparisonRow {
+  final String avoid;
+  final String natural;
+  final String explanationFr;
+
+  const CourseComparisonRow({
+    required this.avoid,
+    required this.natural,
+    required this.explanationFr,
+  });
+}
+
+class CourseDialogueLine {
+  final String speaker;
+  final String english;
+  final String french;
+
+  const CourseDialogueLine({
+    required this.speaker,
+    required this.english,
+    required this.french,
+  });
+}
+
+class CourseQuizItem {
+  final String question;
+  final List<String> options;
+  final String answer;
+  final String explanation;
+
+  const CourseQuizItem({
+    required this.question,
+    required this.options,
+    required this.answer,
+    required this.explanation,
+  });
+}
+
+class ConcreteEnglishCourse {
+  final String level;
+  final String title;
+  final String summaryFr;
+  final List<String> coreRules;
+  final List<CourseComparisonRow> comparisons;
+  final List<CourseDialogueLine> dialogue;
+  final List<CourseQuizItem> exercises;
+
+  const ConcreteEnglishCourse({
+    required this.level,
+    required this.title,
+    required this.summaryFr,
+    required this.coreRules,
+    required this.comparisons,
+    required this.dialogue,
+    required this.exercises,
+  });
+}
+
 class CefrStageModule {
   final String level;
   final String title;
@@ -84,9 +174,9 @@ class OpenLearningPortal {
   });
 }
 
-/// Integrates the MIT open-source Free Dictionary API (dictionaryapi.dev / Wiktionary)
-/// together with a structured A1 -> C2 procedural syllabus, irregular verbs, and verified
-/// free educational portals.
+/// Integrates two real open-source HTTPS APIs (Free Dictionary API MIT + LanguageTool LGPL)
+/// alongside full concrete interactive courses A1 -> C2, Francophone error correction,
+/// playable dialogues, irregular verbs, and verified free/open-source learning portals.
 class EnglishOpenSourceService {
   EnglishOpenSourceService({http.Client? client})
       : _client = client ?? http.Client();
@@ -211,6 +301,736 @@ class EnglishOpenSourceService {
     return parsed;
   }
 
+  /// Parses LanguageTool Open-Source API JSON and builds the auto-corrected sentence.
+  static LanguageToolCheckResult parseLanguageToolResponse(
+    String originalText,
+    String rawJson, {
+    bool usedOnlineApi = true,
+  }) {
+    final decoded = jsonDecode(rawJson);
+    if (decoded is! Map) {
+      return LanguageToolCheckResult(
+        originalText: originalText,
+        correctedText: originalText,
+        issues: const [],
+        usedOnlineApi: usedOnlineApi,
+      );
+    }
+    final rawMatches = decoded['matches'] as List? ?? const [];
+    final issues = <LanguageToolIssue>[];
+
+    for (final m in rawMatches) {
+      if (m is! Map) continue;
+      final offset = (m['offset'] as num?)?.toInt() ?? 0;
+      final length = (m['length'] as num?)?.toInt() ?? 0;
+      if (offset < 0 || offset > originalText.length) continue;
+      final end = (offset + length).clamp(offset, originalText.length);
+      final bad = originalText.substring(offset, end);
+      final reps = <String>[];
+      if (m['replacements'] is List) {
+        for (final r in (m['replacements'] as List).take(3)) {
+          if (r is Map && r['value'] != null) {
+            reps.add(r['value'].toString());
+          }
+        }
+      }
+      final cat = (m['rule'] is Map && (m['rule'] as Map)['category'] is Map)
+          ? ((m['rule'] as Map)['category'] as Map)['name']?.toString() ?? 'Grammar'
+          : 'Grammar';
+      issues.add(
+        LanguageToolIssue(
+          message: m['message']?.toString() ?? 'Check this expression.',
+          badText: bad,
+          offset: offset,
+          length: end - offset,
+          replacements: reps,
+          category: cat,
+        ),
+      );
+    }
+
+    // Apply non-overlapping replacements from end to start
+    final sorted = List<LanguageToolIssue>.from(issues)
+      ..sort((a, b) => b.offset.compareTo(a.offset));
+    var corrected = originalText;
+    var lastStart = corrected.length + 1;
+    for (final issue in sorted) {
+      if (issue.replacements.isEmpty) continue;
+      final end = issue.offset + issue.length;
+      if (end > lastStart) continue;
+      corrected = corrected.replaceRange(
+        issue.offset,
+        end,
+        issue.replacements.first,
+      );
+      lastStart = issue.offset;
+    }
+
+    return LanguageToolCheckResult(
+      originalText: originalText,
+      correctedText: corrected,
+      issues: issues,
+      usedOnlineApi: usedOnlineApi,
+    );
+  }
+
+  /// Live open-source grammar check using LanguageTool public API (LGPL, CORS *, zero API key)
+  /// with immediate local Francophone-English fallback when offline.
+  Future<LanguageToolCheckResult> checkGrammarLive(
+    String text, {
+    String language = 'en-GB',
+  }) async {
+    final clean = text.trim();
+    if (clean.isEmpty) {
+      return const LanguageToolCheckResult(
+        originalText: '',
+        correctedText: '',
+        issues: [],
+        usedOnlineApi: false,
+      );
+    }
+    try {
+      final res = await _client
+          .post(
+            Uri.https('api.languagetool.org', '/v2/check'),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: {
+              'text': clean,
+              'language': language == 'en-US' ? 'en-US' : 'en-GB',
+            },
+          )
+          .timeout(const Duration(seconds: 7));
+      if (res.statusCode == 200) {
+        return parseLanguageToolResponse(clean, res.body, usedOnlineApi: true);
+      }
+    } catch (_) {
+      // Smooth offline fallback below
+    }
+    return checkGrammarOffline(clean);
+  }
+
+  /// Local 15+ rule grammar corrector tailored for French speakers learning English.
+  static LanguageToolCheckResult checkGrammarOffline(String text) {
+    final rules = <({RegExp pattern, String replace, String msg, String cat})>[
+      (
+        pattern: RegExp(r'\bdespite of\b', caseSensitive: false),
+        replace: 'despite',
+        msg: 'On dit "despite + nom" ou "in spite of", jamais "despite of".',
+        cat: 'Preposition',
+      ),
+      (
+        pattern: RegExp(r'\bdiscuss about\b', caseSensitive: false),
+        replace: 'discuss',
+        msg: '"Discuss" est transitif direct : "discuss the project" (sans "about").',
+        cat: 'Preposition',
+      ),
+      (
+        pattern: RegExp(r'\bdepend of\b', caseSensitive: false),
+        replace: 'depend on',
+        msg: 'En anglais on utilise toujours "depend on", jamais "depend of".',
+        cat: 'Preposition',
+      ),
+      (
+        pattern: RegExp(r'\binformations\b', caseSensitive: false),
+        replace: 'information',
+        msg: '"Information" est indénombrable en anglais (pas de -s).',
+        cat: 'Uncountable Noun',
+      ),
+      (
+        pattern: RegExp(r'\badvices\b', caseSensitive: false),
+        replace: 'advice',
+        msg: '"Advice" est indénombrable : dites "some advice" ou "a piece of advice".',
+        cat: 'Uncountable Noun',
+      ),
+      (
+        pattern: RegExp(r'\bequipments\b', caseSensitive: false),
+        replace: 'equipment',
+        msg: '"Equipment" est indénombrable en anglais (pas de pluriel en -s).',
+        cat: 'Uncountable Noun',
+      ),
+      (
+        pattern: RegExp(r'\bI am agree\b', caseSensitive: false),
+        replace: 'I agree',
+        msg: '"Agree" est un verbe : dites "I agree" (jamais "I am agree").',
+        cat: 'Verb Usage',
+      ),
+      (
+        pattern: RegExp(r'\bexplain me\b', caseSensitive: false),
+        replace: 'explain to me',
+        msg: 'On dit toujours "explain [something] to me" (avec "to").',
+        cat: 'Preposition',
+      ),
+      (
+        pattern: RegExp(r'\bI have (\d+) years\b', caseSensitive: false),
+        replace: r'I am $1 years old',
+        msg: 'Pour l’âge en anglais, on utilise "to be" : "I am ... years old".',
+        cat: 'Francophone Trap',
+      ),
+      (
+        pattern: RegExp(r'\bmake (my |the )?homework\b', caseSensitive: false),
+        replace: 'do homework',
+        msg: 'Avec "homework / research / work", on utilise "do" (pas "make").',
+        cat: 'Make vs Do',
+      ),
+      (
+        pattern: RegExp(r'\bmore better\b', caseSensitive: false),
+        replace: 'much better',
+        msg: '"Better" est déjà un comparatif : dites "much better", jamais "more better".',
+        cat: 'Comparative',
+      ),
+      (
+        pattern: RegExp(r'\bI did not went\b', caseSensitive: false),
+        replace: 'I did not go',
+        msg: 'Après l’auxiliaire "did/didn’t", le verbe revient toujours à la base ("go").',
+        cat: 'Past Simple',
+      ),
+      (
+        pattern: RegExp(r"\bhe don't\b", caseSensitive: false),
+        replace: "he doesn't",
+        msg: 'À la 3e personne du singulier (he/she/it), utilisez "doesn’t".',
+        cat: 'Agreement',
+      ),
+      (
+        pattern: RegExp(r"\bshe don't\b", caseSensitive: false),
+        replace: "she doesn't",
+        msg: 'À la 3e personne du singulier (he/she/it), utilisez "doesn’t".',
+        cat: 'Agreement',
+      ),
+      (
+        pattern: RegExp(r'\ba ([aeiouAEIOU]\w+)'),
+        replace: r'an $1',
+        msg: 'Utilisez "an" devant un son voyelle (ex. "an important project").',
+        cat: 'Article',
+      ),
+      (
+        pattern: RegExp(r'(^|\s)i(\s)'),
+        replace: r'$1I$2',
+        msg: 'Le pronom "I" (je) prend toujours une majuscule en anglais.',
+        cat: 'Capitalization',
+      ),
+    ];
+
+    var corrected = text;
+    final issues = <LanguageToolIssue>[];
+    for (final rule in rules) {
+      final m = rule.pattern.firstMatch(corrected);
+      if (m != null) {
+        final bad = m.group(0) ?? '';
+        final rep = bad.replaceFirstMapped(rule.pattern, (match) {
+          if (rule.replace.contains(r'$1')) {
+            return rule.replace
+                .replaceAll(r'$1', match.group(1) ?? '')
+                .replaceAll(r'$2', match.groupCount >= 2 ? (match.group(2) ?? '') : '');
+          }
+          return rule.replace;
+        });
+        issues.add(
+          LanguageToolIssue(
+            message: rule.msg,
+            badText: bad.trim(),
+            offset: m.start,
+            length: m.end - m.start,
+            replacements: [rep.trim()],
+            category: rule.cat,
+          ),
+        );
+        corrected = corrected.replaceRange(m.start, m.end, rep);
+      }
+    }
+
+    return LanguageToolCheckResult(
+      originalText: text,
+      correctedText: corrected,
+      issues: issues,
+      usedOnlineApi: false,
+    );
+  }
+
+  /// Concrete, genuinely helpful bilingual English Coach combining:
+  /// 1) Specific structured answers for French/English learning questions, AND
+  /// 2) Live LanguageTool Open-Source grammar/style correction for English sentences.
+  Future<String> askEnglishCoachLive({
+    required String input,
+    required String variant,
+    required String cefrLevel,
+  }) async {
+    final clean = input.trim();
+    if (clean.isEmpty) {
+      return 'Écrivez une phrase en anglais à corriger ou posez une question précise (ex. "For vs Since", "Present Perfect", "Faux amis", "Entretien STAR").';
+    }
+    final q = clean.toLowerCase();
+
+    // 1. Concrete bilingual lessons for direct grammar / method questions
+    if (q.contains('for') && q.contains('since')) {
+      return '📘 FOR vs SINCE (Règle concrète — Niveau $cefrLevel)\n'
+          '• FOR + une DURÉE (pendant combien de temps) :\n'
+          '  ✅ I have lived in Dakar FOR 5 years. / She studied FOR two hours.\n'
+          '• SINCE + un POINT DE DÉPART précis (depuis quand) :\n'
+          '  ✅ I have worked here SINCE 2023. / We have waited SINCE Monday.\n'
+          '❌ Piège francophone : ne dites jamais "I live here since 3 years" → ✅ "I have lived here for 3 years."\n'
+          '🎯 Exercice : Complétez → "He has practised English ____ January." (Réponse : since)';
+    }
+    if (q.contains('present perfect') || (q.contains('pass') && q.contains('perfect'))) {
+      return '📘 PRESENT PERFECT vs PAST SIMPLE (Règle concrète)\n'
+          '• PAST SIMPLE (verbe + -ed / 2e colonne) : action TERMINÉE et DATÉE dans le passé.\n'
+          '  ✅ Yesterday, I finished the report. / In 2024, we built a solar prototype.\n'
+          '• PRESENT PERFECT (have/has + participe passé) : lien direct avec le PRÉSENT ou expérience sans date précise.\n'
+          '  ✅ I have already finished the report (il est prêt maintenant).\n'
+          '  ✅ Have you ever worked on an international project?\n'
+          '❌ Erreur fréquente : "I have seen him yesterday" → ✅ "I saw him yesterday."';
+    }
+    if (q.contains('make') && q.contains('do')) {
+      return '📘 MAKE vs DO (Tableau indispensable)\n'
+          '• DO = tâches, travail, devoirs, recherches, actions générales :\n'
+          '  ✅ do homework • do research • do business • do your best • do an exercise\n'
+          '• MAKE = créer, produire, décider, provoquer un résultat :\n'
+          '  ✅ make a decision • make progress • make a mistake • make an effort • make a plan\n'
+          '❌ "I must make my homework" → ✅ "I must do my homework."';
+    }
+    if (q.contains('faux ami') || q.contains('false friend')) {
+      return '📘 7 FAUX AMIS FR → EN À CONNAÎTRE ABSOLUMENT\n'
+          '1. Actually = en fait / réellement (et PAS "actuellement" → currently)\n'
+          '2. Eventually = finalement / à terme (et PAS "éventuellement" → possibly)\n'
+          '3. Sensible = raisonnable / censé (et PAS "sensible" → sensitive)\n'
+          '4. Attend = assister à / participer (et PAS "attendre" → wait for)\n'
+          '5. Library = bibliothèque (et PAS "librairie" → bookshop)\n'
+          '6. Resume (n.) = CV ; resume (v.) = reprendre (et PAS "résumer" → summarize)\n'
+          '7. Delay = retard (et PAS "délai / date limite" → deadline)';
+    }
+    if (q.contains('in') && q.contains('on') && q.contains('at') ||
+        q.contains('préposition') ||
+        q.contains('preposition')) {
+      return '📘 PRÉPOSITIONS IN / ON / AT (Pyramide simple)\n'
+          '• IN (large : mois, années, saisons, villes, pays) : in 2026, in November, in Dakar, in the morning.\n'
+          '• ON (précis : jours, dates, surfaces) : on Monday, on July 4th, on the table, on the website.\n'
+          '• AT (très précis : heures exactes, lieux ponctuels) : at 8:00 PM, at night, at home, at the university.';
+    }
+    if (q.contains('conditionnel') || q.contains('conditional') || q.contains('would have')) {
+      return '📘 LES 3 CONDITIONNELS EN ANGLAIS\n'
+          '• 1er (Réel/probable) : If + Present Simple, WILL + base\n'
+          '  → If you practice 20 minutes daily, you will improve quickly.\n'
+          '• 2e (Imaginaire/présent) : If + Past Simple, WOULD + base\n'
+          '  → If I had more time, I would build an open-source course.\n'
+          '• 3e (Regret/passé) : If + had + V3, WOULD HAVE + V3\n'
+          '  → If we had tested earlier, we would have avoided that bug.';
+    }
+    if (q.contains('entretien') || q.contains('interview') || q.contains('star')) {
+      return '📘 RÉUSSIR UN ENTRETIEN EN ANGLAIS (Méthode STAR)\n'
+          '• S (Situation) : "In my previous project at..., we faced a major bottleneck..."\n'
+          '• T (Task) : "My responsibility was to design and validate a reliable solution within two weeks."\n'
+          '• A (Action) : "I analysed the root cause, collaborated with the team, and implemented..."\n'
+          '• R (Result) : "As a result, we reduced errors by 35% and delivered ahead of schedule."\n'
+          '💡 Astuce : Collez votre propre réponse en anglais ici et je la corrige ligne par ligne avec LanguageTool !';
+    }
+    if (q.contains('although') || q.contains('despite')) {
+      return '📘 ALTHOUGH vs DESPITE\n'
+          '• ALTHOUGH / EVEN THOUGH + Sujet + Verbe :\n'
+          '  ✅ Although it was difficult, she delivered an excellent presentation.\n'
+          '• DESPITE / IN SPITE OF + Nom ou Verbe-ing (JAMAIS "despite of" !) :\n'
+          '  ✅ Despite the difficulty, she delivered an excellent presentation.\n'
+          '  ✅ Despite feeling tired, he completed his daily study session.';
+    }
+    if (q.contains('phrasal')) {
+      return '📘 8 PHRASAL VERBS ESSENTIELS (Vie pro & quotidienne)\n'
+          '• carry out = mener à bien (carry out an experiment)\n'
+          '• figure out = comprendre / trouver une solution\n'
+          '• bring up = soulever un sujet en réunion\n'
+          '• follow up = faire le suivi\n'
+          '• look into = examiner en détail / enquêter\n'
+          '• put off = reporter à plus tard\n'
+          '• break down = décomposer un problème (ou tomber en panne)\n'
+          '• come up with = proposer une idée / solution';
+    }
+    if (q.contains('prononciation') || q.contains('pronunciation')) {
+      return '📘 3 RÈGLES D’OR DE PRONONCIATION ($variant)\n'
+          '1. Le "TH" : placez légèrement la pointe de la langue entre les dents (think /θ/, this /ð/) — ne remplacez pas par "s/z".\n'
+          '2. La fin "-ED" au passé :\n'
+          '   • /ɪd/ après t/d (wanted, needed)\n'
+          '   • /t/ après son sourd p/k/f/s/sh/ch (worked, watched)\n'
+          '   • /d/ dans tous les autres cas (played, lived)\n'
+          '3. Le "H" initial est toujours expiré (happy, house, hospital).';
+    }
+
+    // 2. Otherwise treat as English text to check live with LanguageTool Open-Source API!
+    final result = await checkGrammarLive(clean, language: variant);
+    final engineLabel = result.usedOnlineApi
+        ? 'LanguageTool Open-Source (en direct, $variant)'
+        : 'Correcteur hors-ligne FR→EN ($variant)';
+    final buf = StringBuffer()
+      ..writeln('🔎 Analyse Coach ($engineLabel) :');
+
+    if (result.issues.isEmpty) {
+      buf
+        ..writeln('✅ Aucune erreur grammaticale majeure détectée dans votre phrase !')
+        ..writeln('• Phrase validée : "${result.correctedText}"')
+        ..writeln(
+          '💡 Pour aller plus loin ($cefrLevel) : essayez d’ajouter un connecteur logique ("furthermore", "however", "consequently") ou un exemple concret.',
+        );
+    } else {
+      buf
+        ..writeln('✅ Version corrigée : "${result.correctedText}"')
+        ..writeln('')
+        ..writeln('📌 ${result.issues.length} point(s) corrigé(s) :');
+      for (final issue in result.issues.take(5)) {
+        final repText = issue.replacements.isNotEmpty
+            ? ' → ${issue.replacements.join(" / ")}'
+            : '';
+        buf.writeln('• [${issue.category}] "${issue.badText}"$repText : ${issue.message}');
+      }
+    }
+    return buf.toString().trim();
+  }
+
+  static const List<ConcreteEnglishCourse> concreteCourses = [
+    ConcreteEnglishCourse(
+      level: 'A1',
+      title: 'Cours A1 — Se présenter, To Be / To Have & Présent Simple',
+      summaryFr:
+          'Construire des phrases correctes dès le premier jour et éviter les calques du français.',
+      coreRules: [
+        'To BE (être) s’utilise aussi pour l’âge, la faim, la soif et le froid : "I am 23 years old", "I am hungry".',
+        'Présent simple : on ajoute -s / -es à la 3e personne (he/she/it works, studies, goes).',
+        'Questions & négations : on utilise toujours DO / DOES + base verbale ("Do you speak English?", "He doesn’t work on Sunday").',
+      ],
+      comparisons: [
+        CourseComparisonRow(
+          avoid: 'I have 25 years. ❌',
+          natural: 'I am 25 years old. ✅',
+          explanationFr: 'L’âge utilise toujours le verbe "to be" en anglais.',
+        ),
+        CourseComparisonRow(
+          avoid: 'She work in Dakar. ❌',
+          natural: 'She works in Dakar. ✅',
+          explanationFr: 'Ne jamais oublier le -s à he/she/it au présent simple.',
+        ),
+        CourseComparisonRow(
+          avoid: 'I am agree with you. ❌',
+          natural: 'I agree with you. ✅',
+          explanationFr: '"Agree" est un verbe direct (pas un adjectif).',
+        ),
+      ],
+      dialogue: [
+        CourseDialogueLine(
+          speaker: 'Amina',
+          english: 'Hello! My name is Amina. What do you study or do for a living?',
+          french: 'Bonjour ! Je m’appelle Amina. Qu’est-ce que tu étudies ou fais dans la vie ?',
+        ),
+        CourseDialogueLine(
+          speaker: 'Moussa',
+          english: 'Nice to meet you, Amina. I am an agronomy student and I live in Dakar.',
+          french: 'Ravi de te rencontrer Amina. Je suis étudiant en agronomie et j’habite à Dakar.',
+        ),
+        CourseDialogueLine(
+          speaker: 'Amina',
+          english: 'That sounds great! Do you practice English every day?',
+          french: 'C’est super ! Est-ce que tu pratiques l’anglais tous les jours ?',
+        ),
+        CourseDialogueLine(
+          speaker: 'Moussa',
+          english: 'Yes, I listen to short lessons for twenty minutes every morning.',
+          french: 'Oui, j’écoute de courtes leçons pendant vingt minutes chaque matin.',
+        ),
+      ],
+      exercises: [
+        CourseQuizItem(
+          question: 'Choisissez la phrase correcte : "J’ai 24 ans."',
+          options: ['I have 24 years.', 'I am 24 years old.', 'I am having 24.'],
+          answer: 'I am 24 years old.',
+          explanation: 'En anglais, l’âge se construit avec "to be" + years old.',
+        ),
+        CourseQuizItem(
+          question: 'Complétez : "_____ your brother live near the university?"',
+          options: ['Do', 'Does', 'Is'],
+          answer: 'Does',
+          explanation: '"Your brother" = he (3e personne singulier) → auxiliaire "Does".',
+        ),
+      ],
+    ),
+    ConcreteEnglishCourse(
+      level: 'A2',
+      title: 'Cours A2 — Raconter au Passé, Prépositions (In/On/At) & Make vs Do',
+      summaryFr:
+          'Maîtriser le prétérit (Past Simple), situer dans le temps/l’espace et choisir entre Make et Do.',
+      coreRules: [
+        'Past Simple affirmatif : verbe régulier + -ed (worked, studied) ou 2e colonne irrégulière (went, built, spoke).',
+        'Past Simple négatif/question : DID / DIDN’T + BASE verbale ("Did you go?", "I didn’t see" — JAMAIS "didn’t went").',
+        'IN (mois, année, ville) • ON (jour, date) • AT (heure exacte, lieu précis).',
+      ],
+      comparisons: [
+        CourseComparisonRow(
+          avoid: 'I didn’t went to class. ❌',
+          natural: 'I didn’t go to class. ✅',
+          explanationFr: 'Après "did/didn’t", le verbe reste toujours à la forme de base.',
+        ),
+        CourseComparisonRow(
+          avoid: 'I must make my homework. ❌',
+          natural: 'I must do my homework. ✅',
+          explanationFr: 'Tâches/devoirs/recherches → DO ; décisions/créations → MAKE.',
+        ),
+        CourseComparisonRow(
+          avoid: 'The meeting is in Monday at the morning. ❌',
+          natural: 'The meeting is on Monday in the morning. ✅',
+          explanationFr: 'On + jour (on Monday), in + moment de la journée (in the morning).',
+        ),
+      ],
+      dialogue: [
+        CourseDialogueLine(
+          speaker: 'Fatou',
+          english: 'What did you do last weekend?',
+          french: 'Qu’as-tu fait le week-end dernier ?',
+        ),
+        CourseDialogueLine(
+          speaker: 'Khadim',
+          english: 'On Saturday morning, I did some research for our electronics project.',
+          french: 'Samedi matin, j’ai fait des recherches pour notre projet d’électronique.',
+        ),
+        CourseDialogueLine(
+          speaker: 'Fatou',
+          english: 'Did you make good progress?',
+          french: 'As-tu bien avancé ?',
+        ),
+        CourseDialogueLine(
+          speaker: 'Khadim',
+          english: 'Yes! We solved the circuit bug and wrote the full summary at 6 PM.',
+          french: 'Oui ! Nous avons résolu le bug du circuit et rédigé tout le résumé à 18h.',
+        ),
+      ],
+      exercises: [
+        CourseQuizItem(
+          question: 'Complétez : "Yesterday, she _____ a very clear presentation."',
+          options: ['give', 'gave', 'has given'],
+          answer: 'gave',
+          explanation: '"Yesterday" indique un passé terminé et daté → Past Simple ("gave").',
+        ),
+        CourseQuizItem(
+          question: 'Complétez : "We need to _____ a clear decision before Friday."',
+          options: ['do', 'make', 'take'],
+          answer: 'make',
+          explanation: 'En anglais naturel, on dit toujours "make a decision".',
+        ),
+      ],
+    ),
+    ConcreteEnglishCourse(
+      level: 'B1',
+      title: 'Cours B1 — Present Perfect vs Past, For/Since & Faux Amis FR→EN',
+      summaryFr:
+          'Faire la différence entre action passée close et bilan présent, et éliminer les faux amis.',
+      coreRules: [
+        'Present Perfect (have/has + V3) relie le passé au présent : "I have worked here for 3 years" (j’y travaille encore).',
+        'FOR + durée ("for two weeks") vs SINCE + point de départ ("since 2024", "since Monday").',
+        'Faux amis clés : actually = en fait, currently = actuellement, eventually = finalement, attend = assister à.',
+      ],
+      comparisons: [
+        CourseComparisonRow(
+          avoid: 'I study English since 2 years. ❌',
+          natural: 'I have studied English for 2 years. ✅',
+          explanationFr: 'Durée commencée dans le passé qui continue → Present Perfect + FOR.',
+        ),
+        CourseComparisonRow(
+          avoid: 'Actually, I work in Saint-Louis. ❌',
+          natural: 'Currently, I work in Saint-Louis. ✅',
+          explanationFr: '"Actually" veut dire "en fait" ; "actuellement" se traduit par "currently".',
+        ),
+        CourseComparisonRow(
+          avoid: 'Despite of the rain, we attended. ❌',
+          natural: 'Despite the rain, we attended. ✅',
+          explanationFr: '"Despite" ne prend jamais "of" ; "in spite of" le prend.',
+        ),
+      ],
+      dialogue: [
+        CourseDialogueLine(
+          speaker: 'Diarra',
+          english: 'How long have you been part of the community?',
+          french: 'Depuis combien de temps fais-tu partie de la communauté ?',
+        ),
+        CourseDialogueLine(
+          speaker: 'Bamba',
+          english: 'I have been a member since 2024, so for about two years now.',
+          french: 'Je suis membre depuis 2024, donc depuis environ deux ans maintenant.',
+        ),
+        CourseDialogueLine(
+          speaker: 'Diarra',
+          english: 'Actually, I noticed your English fluency has improved a lot!',
+          french: 'En fait, j’ai remarqué que ton aisance en anglais s’est beaucoup améliorée !',
+        ),
+        CourseDialogueLine(
+          speaker: 'Bamba',
+          english: 'Thank you! Speaking regularly despite small mistakes really helped me.',
+          french: 'Merci ! Parler régulièrement malgré les petites erreurs m’a vraiment aidé.',
+        ),
+      ],
+      exercises: [
+        CourseQuizItem(
+          question: 'Complétez : "She has worked as a doctor _____ 2021."',
+          options: ['for', 'since', 'during'],
+          answer: 'since',
+          explanation: '"2021" est un point de départ précis → "since".',
+        ),
+        CourseQuizItem(
+          question: 'Comment traduire « Actuellement, je prépare mon mémoire » ?',
+          options: [
+            'Actually, I prepare my thesis.',
+            'Currently, I am working on my thesis.',
+            'Eventually, I work on my thesis.',
+          ],
+          answer: 'Currently, I am working on my thesis.',
+          explanation: '"Currently" = actuellement + Present Continuous pour une action en cours.',
+        ),
+      ],
+    ),
+    ConcreteEnglishCourse(
+      level: 'B2',
+      title: 'Cours B2 — Conditionnels (1–2–3), Voix Passive & Phrasal Verbs',
+      summaryFr:
+          'Exprimer des hypothèses précises, rédiger dans un registre technique et utiliser les phrasal verbs.',
+      coreRules: [
+        '2e conditionnel (hypothèse présente) : If + Past Simple, would + base.',
+        '3e conditionnel (hypothèse passée) : If + had + V3, would have + V3.',
+        'Voix passive technique : be (conjugué) + V3 ("The sensor was calibrated before deployment").',
+      ],
+      comparisons: [
+        CourseComparisonRow(
+          avoid: 'If I would have time, I would come. ❌',
+          natural: 'If I had time, I would come. ✅',
+          explanationFr: 'Pas de "would" dans la proposition en "If" en anglais standard.',
+        ),
+        CourseComparisonRow(
+          avoid: 'We discussed about the new protocol. ❌',
+          natural: 'We discussed the new protocol. ✅',
+          explanationFr: '"Discuss" est suivi directement du complément d’objet.',
+        ),
+        CourseComparisonRow(
+          avoid: 'Can you explain me this formula? ❌',
+          natural: 'Can you explain this formula to me? ✅',
+          explanationFr: 'Structure obligatoire : explain + something + to someone.',
+        ),
+      ],
+      dialogue: [
+        CourseDialogueLine(
+          speaker: 'Engineer',
+          english: 'Had we checked the battery voltage earlier, we would have avoided the outage.',
+          french: 'Si nous avions vérifié la tension de batterie plus tôt, nous aurions évité la coupure.',
+        ),
+        CourseDialogueLine(
+          speaker: 'Lead',
+          english: 'Good point. Let us look into the root cause and come up with a checklist.',
+          french: 'Bien vu. Examinons la cause racine et élaborons une liste de contrôle.',
+        ),
+        CourseDialogueLine(
+          speaker: 'Engineer',
+          english: 'I will carry out the load test today and follow up with the full metrics tonight.',
+          french: 'Je vais effectuer le test de charge aujourd’hui et envoyer les mesures ce soir.',
+        ),
+      ],
+      exercises: [
+        CourseQuizItem(
+          question: 'Complétez : "If we had verified the data, we _____ caught the mistake."',
+          options: ['will have', 'would have', 'would'],
+          answer: 'would have',
+          explanation: '3e conditionnel : If + had + V3 → would have + V3.',
+        ),
+        CourseQuizItem(
+          question: 'Quel phrasal verb signifie « examiner en détail / enquêter » ?',
+          options: ['put off', 'look into', 'give up'],
+          answer: 'look into',
+          explanation: '"Look into an issue" = examiner un problème en profondeur.',
+        ),
+      ],
+    ),
+    ConcreteEnglishCourse(
+      level: 'C1',
+      title: 'Cours C1 — Leadership, Entretien STAR & Inversions Stylistiques',
+      summaryFr:
+          'Convaincre en entretien international, synthétiser des rapports et maîtriser les inversions formelles.',
+      coreRules: [
+        'Inversion après adverbe négatif/restrictif en tête : "Not only DID we reduce costs, but we also improved reliability."',
+        'Conditionnel 3 inversé sans "if" : "Had we delayed the rollout, the impact would have been severe."',
+        'Noms indénombrables en milieu pro : information, advice, equipment, research, feedback, progress (JAMAIS au pluriel).',
+      ],
+      comparisons: [
+        CourseComparisonRow(
+          avoid: 'Thanks for your helpful feedbacks and advices. ❌',
+          natural: 'Thank you for your helpful feedback and advice. ✅',
+          explanationFr: '"Feedback" et "advice" sont toujours indénombrables en anglais.',
+        ),
+        CourseComparisonRow(
+          avoid: 'Not only we improved speed, we cut cost. ❌',
+          natural: 'Not only did we improve speed, but we also cut costs. ✅',
+          explanationFr: 'Après "Not only" en début de phrase, on inverse l’auxiliaire ("did we").',
+        ),
+      ],
+      dialogue: [
+        CourseDialogueLine(
+          speaker: 'Recruiter',
+          english: 'Tell me about a complex challenge where you had to align different specialists.',
+          french: 'Parlez-moi d’un défi complexe où vous avez dû coordonner plusieurs spécialistes.',
+        ),
+        CourseDialogueLine(
+          speaker: 'Candidate',
+          english: 'In our rural water project, agronomists and software engineers initially used incompatible metrics.',
+          french: 'Dans notre projet d’eau rurale, agronomes et développeurs utilisaient d’abord des indicateurs incompatibles.',
+        ),
+        CourseDialogueLine(
+          speaker: 'Candidate',
+          english: 'Not only did I facilitate a shared specification, but I also built an automated dashboard that cut water waste by 28%.',
+          french: 'Non seulement j’ai animé un cahier des charges commun, mais j’ai aussi conçu un tableau de bord réduisant les pertes d’eau de 28 %.',
+        ),
+      ],
+      exercises: [
+        CourseQuizItem(
+          question: 'Complétez : "Not only _____ the deadline, but she also documented every step."',
+          options: ['she met', 'did she meet', 'she did meet'],
+          answer: 'did she meet',
+          explanation: 'Inversion obligatoire après "Not only" en tête de phrase : auxiliaire + sujet + base.',
+        ),
+      ],
+    ),
+    ConcreteEnglishCourse(
+      level: 'C2',
+      title: 'Cours C2 — Rhétorique, Nuance Académique & Hedging de Précision',
+      summaryFr:
+          'Nuancer une thèse scientifique ou philosophique sans absolutisme, en registre académique international.',
+      coreRules: [
+        'Hedging académique : remplacer les affirmations absolues par "evidence suggests that", "to a significant extent", "it appears plausible that".',
+        'Concessions sophistiquées : "Notwithstanding these constraints...", "Albeit preliminary, the findings indicate...", "Granted that...".',
+        'Cohérence UK vs US : choisir une convention orthographique constante (analyse/analyze, programme/program, colour/color).',
+      ],
+      comparisons: [
+        CourseComparisonRow(
+          avoid: 'This proves 100% that technology always ruins thinking. ❌',
+          natural: 'While excessive reliance may erode analytical habits, structured use appears to enhance critical inquiry. ✅',
+          explanationFr: 'Le registre C2 privilégie la nuance fondée sur des preuves plutôt que l’exagération.',
+        ),
+      ],
+      dialogue: [
+        CourseDialogueLine(
+          speaker: 'Moderator',
+          english: 'Notwithstanding the rapid pace of automation, where does irreplaceable human discernment remain decisive?',
+          french: 'Malgré le rythme rapide de l’automatisation, où le discernement humain irremplaçable reste-t-il décisif ?',
+        ),
+        CourseDialogueLine(
+          speaker: 'Panelist',
+          english: 'Granted that algorithms excel at pattern synthesis, ethical accountability and contextual wisdom cannot be outsourced.',
+          french: 'Bien que les algorithmes excellent dans la synthèse de motifs, la responsabilité éthique et la sagesse contextuelle ne se délèguent pas.',
+        ),
+      ],
+      exercises: [
+        CourseQuizItem(
+          question: 'Quel connecteur formel signifie « bien que / quoique » devant un adjectif ?',
+          options: ['Albeit', 'Whereas', 'Unless'],
+          answer: 'Albeit',
+          explanation: '"Albeit" s’emploie élégamment devant un adjectif ou groupe nominal ("albeit brief").',
+        ),
+      ],
+    ),
+  ];
+
+  static ConcreteEnglishCourse courseForLevel(String level) =>
+      concreteCourses.firstWhere(
+        (c) => c.level == level,
+        orElse: () => concreteCourses[2],
+      );
+
   static const List<CefrStageModule> curriculum = [
     CefrStageModule(
       level: 'A1',
@@ -309,22 +1129,40 @@ class EnglishOpenSourceService {
 
   static const List<OpenLearningPortal> openPortals = [
     OpenLearningPortal(
+      name: 'LanguageTool Open-Source Engine (LGPL)',
+      licenseOrAccess: 'Open-Source LGPL — Intégré en direct dans notre Coach !',
+      summary: 'Correcteur grammatical, syntaxique et stylistique anglais UK/US en temps réel.',
+      url: 'https://languagetool.org/',
+    ),
+    OpenLearningPortal(
+      name: 'Wikibooks — English in Use (Cours complet libre)',
+      licenseOrAccess: 'Licence libre CC-BY-SA',
+      summary: 'Manuel complet open-source de grammaire, syntaxe, orthographe et rédaction anglaise.',
+      url: 'https://en.wikibooks.org/wiki/English_in_Use',
+    ),
+    OpenLearningPortal(
+      name: 'British Council LearnEnglish (Cours gratuits A1 → C1)',
+      licenseOrAccess: 'Accès gratuit officiel',
+      summary: 'Leçons complètes par niveau : Grammar, Listening, Reading, Speaking, Business English.',
+      url: 'https://learnenglish.britishcouncil.org/grammar',
+    ),
+    OpenLearningPortal(
+      name: 'BBC Learning English — Cours structurés & 6 Minute English',
+      licenseOrAccess: 'Accès gratuit éducatif',
+      summary: 'Cours complets par unités (Lower/Upper Intermediate, Towards Advanced) + audio et scripts.',
+      url: 'https://www.bbc.co.uk/learningenglish/english/course/lower-intermediate',
+    ),
+    OpenLearningPortal(
+      name: 'VOA Learning English — Let’s Learn English (52 leçons)',
+      licenseOrAccess: 'Domaine public (US Gov Open Educational Resource)',
+      summary: 'Programme complet de 52 leçons vidéo/audio avec fiches d’exercices téléchargeables.',
+      url: 'https://learningenglish.voanews.com/z/4729',
+    ),
+    OpenLearningPortal(
       name: 'Free Dictionary API (Open-Source MIT / Wiktionary)',
       licenseOrAccess: 'MIT Open-Source — Intégré en direct ici',
       summary: 'Définitions anglaises, phonétique IPA, exemples réels et prononciations MP3 natives.',
       url: 'https://dictionaryapi.dev/',
-    ),
-    OpenLearningPortal(
-      name: 'British Council LearnEnglish (A1 → C1)',
-      licenseOrAccess: 'Accès gratuit officiel',
-      summary: 'Parcours structurés par compétence : Listening, Reading, Speaking, Grammar.',
-      url: 'https://learnenglish.britishcouncil.org/',
-    ),
-    OpenLearningPortal(
-      name: 'BBC Learning English (6 Minute English & Grammar)',
-      licenseOrAccess: 'Accès gratuit éducatif',
-      summary: 'Audio hebdomadaire avec script complet, phonétique britannique et quiz progressifs.',
-      url: 'https://www.bbc.co.uk/learningenglish',
     ),
     OpenLearningPortal(
       name: 'Tatoeba Corpus (CC-BY Open Data)',

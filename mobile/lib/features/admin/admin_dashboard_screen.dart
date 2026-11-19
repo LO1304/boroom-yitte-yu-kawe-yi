@@ -19,6 +19,8 @@ class AdminDashboardScreen extends ConsumerStatefulWidget {
 class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   final _broadcastTitleCtrl = TextEditingController();
   final _broadcastBodyCtrl = TextEditingController();
+  final _broadcastLocationCtrl = TextEditingController();
+  DateTime? _broadcastEventDate;
   final _dailyThoughtCtrl = TextEditingController();
   final _waNameCtrl = TextEditingController();
   final _waInviteCtrl = TextEditingController();
@@ -31,6 +33,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   void dispose() {
     _broadcastTitleCtrl.dispose();
     _broadcastBodyCtrl.dispose();
+    _broadcastLocationCtrl.dispose();
     _dailyThoughtCtrl.dispose();
     _waNameCtrl.dispose();
     _waInviteCtrl.dispose();
@@ -151,8 +154,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   controller: _dailyThoughtCtrl,
                   maxLines: 2,
                   decoration: const InputDecoration(
-                    labelText: 'Texte sourcé validé à afficher sur l’Accueil',
-                    hintText: 'Laisser vide pour masquer l’encart (zéro citation inventée).',
+                    labelText: 'Pensée du jour personnalisée (Accueil)',
+                    hintText: 'Laisser vide pour afficher la sélection classique quotidienne.',
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -399,7 +402,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 eco.weeklyTopic.summary?.title ?? 'Aucun résumé en attente',
               ),
               subtitle: Text(
-                'Statut : ${eco.weeklyTopic.summary?.status ?? "non généré"}',
+                'Statut : ${eco.weeklyTopic.summary?.status ?? "à rédiger"}',
               ),
               trailing: eco.weeklyTopic.summary != null &&
                       eco.weeklyTopic.summary!.status != 'published'
@@ -441,7 +444,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               ),
             ),
           const SizedBox(height: 18),
-          const SectionHeader(title: 'Diffusion de Notification'),
+          const SectionHeader(title: 'Diffusion d’Annonce & Agenda'),
           const SizedBox(height: 8),
           TextField(
             controller: _broadcastTitleCtrl,
@@ -450,29 +453,83 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           const SizedBox(height: 8),
           TextField(
             controller: _broadcastBodyCtrl,
-            decoration: const InputDecoration(labelText: 'Message'),
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Message / Détails'),
           ),
           const SizedBox(height: 8),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.campaign_outlined),
-            label: const Text('Diffuser l’annonce'),
-            onPressed: () async {
-              final title = _broadcastTitleCtrl.text.trim();
-              final body = _broadcastBodyCtrl.text.trim();
-              if (title.isEmpty) return;
-              await ref.read(ecosystemProvider.notifier).broadcastAnnouncement(
-                    title,
-                    body,
-                    profile?.fullName ?? 'Administration',
+          TextField(
+            controller: _broadcastLocationCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Lieu ou lien visio (optionnel — pour l’agenda)',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.event_rounded, size: 18),
+                label: Text(
+                  _broadcastEventDate == null
+                      ? 'Choisir date & heure (optionnel)'
+                      : 'Date : ${_broadcastEventDate!.day.toString().padLeft(2, '0')}/${_broadcastEventDate!.month.toString().padLeft(2, '0')}/${_broadcastEventDate!.year} ${_broadcastEventDate!.hour.toString().padLeft(2, '0')}h${_broadcastEventDate!.minute.toString().padLeft(2, '0')}',
+                ),
+                onPressed: () async {
+                  final now = DateTime.now();
+                  final pickedDate = await showDatePicker(
+                    context: context,
+                    initialDate: _broadcastEventDate ?? now.add(const Duration(days: 1)),
+                    firstDate: now.subtract(const Duration(days: 1)),
+                    lastDate: now.add(const Duration(days: 365 * 2)),
                   );
-              _broadcastTitleCtrl.clear();
-              _broadcastBodyCtrl.clear();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Annonce diffusée : $title')),
-                );
-              }
-            },
+                  if (pickedDate == null || !context.mounted) return;
+                  final pickedTime = await showTimePicker(
+                    context: context,
+                    initialTime: const TimeOfDay(hour: 20, minute: 0),
+                  );
+                  setState(() {
+                    _broadcastEventDate = DateTime(
+                      pickedDate.year,
+                      pickedDate.month,
+                      pickedDate.day,
+                      pickedTime?.hour ?? 20,
+                      pickedTime?.minute ?? 0,
+                    );
+                  });
+                },
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.campaign_outlined),
+                label: const Text('Diffuser l’annonce'),
+                onPressed: () async {
+                  final title = _broadcastTitleCtrl.text.trim();
+                  final body = _broadcastBodyCtrl.text.trim();
+                  if (title.isEmpty) return;
+                  await ref.read(ecosystemProvider.notifier).broadcastAnnouncement(
+                        title,
+                        body,
+                        profile?.fullName ?? 'Administration',
+                        eventDate: _broadcastEventDate,
+                        location: _broadcastLocationCtrl.text.trim(),
+                      );
+                  _broadcastTitleCtrl.clear();
+                  _broadcastBodyCtrl.clear();
+                  _broadcastLocationCtrl.clear();
+                  setState(() => _broadcastEventDate = null);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Annonce diffusée en premier plan & dans les notifications : $title',
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
           ),
           const SizedBox(height: 18),
           const SectionHeader(title: 'Journal d’Audit (Audit Logs)'),

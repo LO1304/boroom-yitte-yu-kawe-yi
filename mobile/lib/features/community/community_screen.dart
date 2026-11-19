@@ -184,37 +184,12 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                   'Salons vocaux en direct, rencontres mensuelles Extra Groupe, annuaire vérifié et messagerie par canaux.',
               actions: [
                 ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.tokensOf(context).visualModel ==
-                            UiVisualModel.editorialMinimal
-                        ? Theme.of(context).colorScheme.primary
-                        : YitteColors.goldBright,
-                    foregroundColor: AppTheme.tokensOf(context).visualModel ==
-                            UiVisualModel.editorialMinimal
-                        ? Colors.white
-                        : YitteColors.inkDark,
-                  ),
-                  icon: const Icon(Icons.groups_2_rounded, size: 18),
+                  icon: const Icon(Icons.groups_2_outlined, size: 17),
                   label: const Text('Extra Groupe'),
                   onPressed: () => context.push('/extra-groupe'),
                 ),
                 OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.tokensOf(context).visualModel ==
-                            UiVisualModel.editorialMinimal
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.white,
-                    side: BorderSide(
-                      color: AppTheme.tokensOf(context).visualModel ==
-                              UiVisualModel.editorialMinimal
-                          ? Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: 0.4)
-                          : Colors.white.withValues(alpha: 0.55),
-                    ),
-                  ),
-                  icon: const Icon(Icons.folder_copy_outlined, size: 18),
+                  icon: const Icon(Icons.folder_copy_outlined, size: 17),
                   label: const Text('Bibliothèque Docs'),
                   onPressed: () => context.push('/documents'),
                 ),
@@ -232,10 +207,10 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                 Row(
                   children: [
                     const YitteIconBadge(
-                      icon: Icons.chat_rounded,
-                      color: Color(0xFF16A34A),
-                      size: 46,
-                      iconSize: 23,
+                      icon: Icons.chat_bubble_outline_rounded,
+                      color: YitteColors.emerald,
+                      size: 42,
+                      iconSize: 20,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -516,9 +491,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           if (eco.members.isEmpty)
             YitteEmptyState(
               icon: Icons.person_outline_rounded,
-              title: 'Aucun membre enregistré sur ce serveur',
+              title: 'Aucun membre inscrit dans l’annuaire',
               description:
-                  'Connectez-vous ou inscrivez un compte pour rejoindre l’annuaire vérifié des membres.',
+                  'Connectez-vous avec votre nom complet pour rejoindre l’annuaire du cercle.',
               actionLabel: 'Se connecter / S’inscrire',
               onAction: () => context.push('/auth'),
             )

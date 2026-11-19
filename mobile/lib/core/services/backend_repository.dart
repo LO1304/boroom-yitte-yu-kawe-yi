@@ -1004,8 +1004,7 @@ class BackendRepository {
     final source = (document.extractedText ?? '').trim();
     if (source.length < 20) {
       throw StateError(
-        'Aucune source textuelle lisible disponible pour « ${document.title} ». '
-        'Conformément à la règle anti-invention, aucun résumé ne sera généré sans contenu source.',
+        'Ajoutez un texte source ou importez un fichier lisible pour obtenir la synthèse de « ${document.title} ».',
       );
     }
 

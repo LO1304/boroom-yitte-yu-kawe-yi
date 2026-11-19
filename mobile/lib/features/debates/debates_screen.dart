@@ -167,7 +167,7 @@ class _DebatesScreenState extends ConsumerState<DebatesScreen> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Text(
-                        'Sujet islamique : distinction stricte entre savoir scripturaire vérifié et interprétation philosophique. Aucune citation fabriquée.',
+                        'Sujet islamique : appuyez vos arguments sur des sources scripturaires reconnues et distinguez clairement texte et interprétation.',
                         style: TextStyle(fontSize: 12, color: YitteColors.inkDark),
                       ),
                     ),

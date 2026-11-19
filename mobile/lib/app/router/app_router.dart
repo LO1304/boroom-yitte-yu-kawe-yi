@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -286,17 +284,10 @@ class _MainScaffoldShell extends ConsumerWidget {
           child: Row(
             children: [
               Container(
-                width: 248,
+                width: 244,
                 decoration: BoxDecoration(
-                  color: tokens.elevated.withValues(alpha: isDark ? 0.86 : 0.90),
-                  border: Border(right: BorderSide(color: tokens.borderSubtle)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: tokens.shadowTint,
-                      blurRadius: 24,
-                      offset: const Offset(4, 0),
-                    ),
-                  ],
+                  color: tokens.elevated,
+                  border: Border(right: BorderSide(color: tokens.borderSubtle, width: 1)),
                 ),
                 child: SafeArea(
                   child: Column(
@@ -309,10 +300,7 @@ class _MainScaffoldShell extends ConsumerWidget {
                             YitteIconBadge(
                               color: Theme.of(context).colorScheme.primary,
                               size: 40,
-                              customIcon: const SanctuaryPrayerIcon(
-                                size: 22,
-                                color: Colors.white,
-                              ),
+                              customIcon: const SanctuaryPrayerIcon(size: 20),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -323,12 +311,10 @@ class _MainScaffoldShell extends ConsumerWidget {
                                     'BOROOM YITTÉ',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 13.5,
-                                      letterSpacing: -0.2,
-                                      color: Theme.of(context).colorScheme.onSurface,
-                                    ),
+                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                          fontFamily: YitteFonts.display,
+                                          fontSize: 14,
+                                        ),
                                   ),
                                   Text(
                                     tokens.visualModel.labelFr,
@@ -353,44 +339,31 @@ class _MainScaffoldShell extends ConsumerWidget {
                             final selected = navigationShell.currentIndex == i;
                             final primary = Theme.of(ctx).colorScheme.primary;
                             return Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
+                              padding: const EdgeInsets.only(bottom: 4),
                               child: Material(
                                 color: Colors.transparent,
                                 child: InkWell(
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(10),
                                   onTap: () => onSelectNav(i),
                                   child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 220),
+                                    duration: const Duration(milliseconds: 160),
                                     curve: Curves.easeOutCubic,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 14,
-                                      vertical: 12,
+                                      vertical: 11,
                                     ),
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      gradient: selected
-                                          ? LinearGradient(
-                                              colors: [
-                                                primary,
-                                                Color.lerp(primary, tokens.goldAccent, 0.25) ?? primary,
-                                              ],
-                                            )
-                                          : null,
-                                      boxShadow: selected
-                                          ? [
-                                              BoxShadow(
-                                                color: primary.withValues(alpha: 0.30),
-                                                blurRadius: 14,
-                                                offset: const Offset(0, 5),
-                                              ),
-                                            ]
+                                      borderRadius: BorderRadius.circular(10),
+                                      color: selected ? primary : Colors.transparent,
+                                      border: selected
+                                          ? Border.all(color: primary, width: 1)
                                           : null,
                                     ),
                                     child: Row(
                                       children: [
                                         Icon(
                                           selected ? item.active : item.icon,
-                                          size: 22,
+                                          size: 20,
                                           color: selected
                                               ? Colors.white
                                               : Theme.of(ctx).textTheme.bodyMedium?.color,
@@ -400,10 +373,10 @@ class _MainScaffoldShell extends ConsumerWidget {
                                           child: Text(
                                             item.label,
                                             style: TextStyle(
-                                              fontSize: 14,
+                                              fontSize: 13.5,
                                               fontWeight: selected
-                                                  ? FontWeight.w800
-                                                  : FontWeight.w600,
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500,
                                               color: selected
                                                   ? Colors.white
                                                   : Theme.of(ctx).colorScheme.onSurface,
@@ -434,16 +407,16 @@ class _MainScaffoldShell extends ConsumerWidget {
                               },
                               icon: Icon(
                                 isDark
-                                    ? Icons.light_mode_rounded
-                                    : Icons.dark_mode_rounded,
-                                size: 18,
+                                    ? Icons.light_mode_outlined
+                                    : Icons.dark_mode_outlined,
+                                size: 17,
                               ),
                               label: Text(isDark ? 'Passer en Clair' : 'Passer en Sombre'),
                             ),
                             const SizedBox(height: 8),
                             ElevatedButton.icon(
                               onPressed: () => showDesignStudioSheet(context),
-                              icon: const Icon(Icons.palette_rounded, size: 18),
+                              icon: const Icon(Icons.tune_outlined, size: 17),
                               label: const Text('Thèmes & Modèles'),
                             ),
                           ],
@@ -468,7 +441,7 @@ class _MainScaffoldShell extends ConsumerWidget {
     }
 
     return Scaffold(
-      extendBody: floatingBar,
+      extendBody: false,
       body: YitteAuroraBackdrop(child: navigationShell),
       bottomNavigationBar: _YitteCustomBottomDock(
         floating: floatingBar,
@@ -496,35 +469,15 @@ class _YitteCustomBottomDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = Theme.of(context).colorScheme.primary;
     final muted = Theme.of(context).textTheme.bodyMedium?.color ?? YitteColors.inkMuted;
 
     final dockContent = Container(
-      height: 68,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
-        color: floating
-            ? tokens.elevated.withValues(alpha: isDark ? 0.84 : 0.90)
-            : tokens.elevated,
-        borderRadius: floating ? BorderRadius.circular(30) : BorderRadius.zero,
-        border: floating
-            ? Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.14)
-                    : Colors.white.withValues(alpha: 0.95),
-                width: 1.3,
-              )
-            : Border(top: BorderSide(color: tokens.borderSubtle)),
-        boxShadow: floating
-            ? [
-                BoxShadow(
-                  color: tokens.shadowTint,
-                  blurRadius: 28,
-                  offset: const Offset(0, 10),
-                ),
-              ]
-            : null,
+        color: tokens.elevated,
+        border: Border(top: BorderSide(color: tokens.borderSubtle, width: 1)),
       ),
       child: Row(
         children: items.asMap().entries.map((entry) {
@@ -533,37 +486,23 @@ class _YitteCustomBottomDock extends StatelessWidget {
           final selected = i == selectedIndex;
           return Expanded(
             child: InkWell(
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(10),
               onTap: () => onSelected(i),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 240),
+                duration: const Duration(milliseconds: 160),
                 curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 2),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  gradient: selected
-                      ? LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            primary.withValues(alpha: isDark ? 0.34 : 0.16),
-                            tokens.goldAccent.withValues(alpha: isDark ? 0.22 : 0.12),
-                          ],
-                        )
-                      : null,
+                  borderRadius: BorderRadius.circular(10),
+                  color: selected ? tokens.subtleFill : Colors.transparent,
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    AnimatedScale(
-                      scale: selected ? 1.14 : 1.0,
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeOutBack,
-                      child: Icon(
-                        selected ? item.active : item.icon,
-                        size: 24,
-                        color: selected ? primary : muted,
-                      ),
+                    Icon(
+                      selected ? item.active : item.icon,
+                      size: 21,
+                      color: selected ? primary : muted,
                     ),
                     const SizedBox(height: 3),
                     Padding(
@@ -575,7 +514,7 @@ class _YitteCustomBottomDock extends StatelessWidget {
                           maxLines: 1,
                           style: TextStyle(
                             fontSize: 10.5,
-                            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                             color: selected ? primary : muted,
                           ),
                         ),
@@ -590,22 +529,6 @@ class _YitteCustomBottomDock extends StatelessWidget {
       ),
     );
 
-    if (!floating) {
-      return SafeArea(top: false, child: dockContent);
-    }
-
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(30),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: dockContent,
-          ),
-        ),
-      ),
-    );
+    return SafeArea(top: false, child: dockContent);
   }
 }

@@ -10,7 +10,7 @@ bool yitteMotionReduced(BuildContext context) {
   return MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 }
 
-/// Fluid spring-like page transition for GoRouter routes.
+/// Crisp, restrained editorial page transition for GoRouter routes.
 Page<void> yitteTransitionPage({
   required LocalKey key,
   required Widget child,
@@ -18,8 +18,8 @@ Page<void> yitteTransitionPage({
   return CustomTransitionPage<void>(
     key: key,
     child: child,
-    transitionDuration: const Duration(milliseconds: 280),
-    reverseTransitionDuration: const Duration(milliseconds: 210),
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
       if (yitteMotionReduced(context)) return child;
       final curved = CurvedAnimation(
@@ -30,20 +30,17 @@ Page<void> yitteTransitionPage({
         opacity: curved,
         child: SlideTransition(
           position: Tween<Offset>(
-            begin: const Offset(0, 0.035),
+            begin: const Offset(0, 0.02),
             end: Offset.zero,
           ).animate(curved),
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.985, end: 1.0).animate(curved),
-            child: child,
-          ),
+          child: child,
         ),
       );
     },
   );
 }
 
-/// Atmospheric ambient Aurora Mesh backdrop reacting instantly to theme + UI model.
+/// Clean matte editorial canvas (Light #F8F7F4 / Dark #0E1110) — zero pastel wash or glowing blobs.
 class YitteAuroraBackdrop extends StatelessWidget {
   final Widget child;
 
@@ -52,82 +49,11 @@ class YitteAuroraBackdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final model = tokens.visualModel;
-
-    if (model == UiVisualModel.editorialMinimal) {
-      return ColoredBox(color: tokens.canvas, child: child);
-    }
-
-    final orbAlphaA = isDark
-        ? (model == UiVisualModel.dynamicCommunity ? 0.24 : 0.18)
-        : (model == UiVisualModel.dynamicCommunity ? 0.22 : 0.16);
-    final orbAlphaB = isDark
-        ? (model == UiVisualModel.dynamicCommunity ? 0.19 : 0.14)
-        : (model == UiVisualModel.dynamicCommunity ? 0.18 : 0.14);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(color: tokens.canvas),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Positioned(
-            top: -120,
-            right: -90,
-            child: IgnorePointer(
-              child: Container(
-                width: 340,
-                height: 340,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      tokens.meshOrbA.withValues(alpha: orbAlphaA),
-                      tokens.meshOrbA.withValues(alpha: 0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 260,
-            left: -130,
-            child: IgnorePointer(
-              child: Container(
-                width: 320,
-                height: 320,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      tokens.meshOrbB.withValues(alpha: orbAlphaB),
-                      tokens.meshOrbB.withValues(alpha: 0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (model == UiVisualModel.sanctuaryClassic)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: SanctuaryGeometryPainter(
-                    strokeColor: tokens.goldAccent.withValues(alpha: isDark ? 0.05 : 0.06),
-                    accentColor: Colors.transparent,
-                  ),
-                ),
-              ),
-            ),
-          child,
-        ],
-      ),
-    );
+    return ColoredBox(color: tokens.canvas, child: child);
   }
 }
 
-/// 3D-lit jewel-tone gradient icon squircle badge — bold, scaled, dimensional.
+/// Fine monochrome editorial icon frame — crisp 1px border, zero shadows, zero multicolor gradients.
 class YitteIconBadge extends StatelessWidget {
   final IconData? icon;
   final Widget? customIcon;
@@ -142,70 +68,47 @@ class YitteIconBadge extends StatelessWidget {
     this.customIcon,
     required this.color,
     this.secondaryColor,
-    this.size = 48,
-    this.iconSize = 24,
+    this.size = 44,
+    this.iconSize = 21,
   });
 
   @override
   Widget build(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final isMinimal = tokens.visualModel == UiVisualModel.editorialMinimal;
-    final radius = size * 0.30;
-
-    if (isMinimal) {
-      return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: color.withValues(alpha: 0.28)),
-        ),
-        child: Center(
-          child: customIcon ?? Icon(icon, color: color, size: iconSize),
-        ),
-      );
-    }
-
-    final hi = secondaryColor ?? Color.lerp(color, Colors.white, 0.26) ?? color;
-    final lo = Color.lerp(color, Colors.black, 0.24) ?? color;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    final isGold = color == YitteColors.gold ||
+        color == YitteColors.goldBright ||
+        color == tokens.goldAccent;
+    final fg = isGold
+        ? tokens.goldAccent
+        : (isDark ? primary : Theme.of(context).colorScheme.primary);
 
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [hi, color, lo],
-          stops: const [0.0, 0.52, 1.0],
-        ),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.35),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.34),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: isDark ? tokens.canvas : tokens.subtleFill,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: tokens.borderSubtle, width: 1),
       ),
       child: Center(
-        child: customIcon ??
-            Icon(
-              icon,
-              color: Colors.white,
-              size: iconSize,
-            ),
+        child: customIcon != null
+            ? IconTheme.merge(
+                data: IconThemeData(color: fg, size: iconSize),
+                child: customIcon!,
+              )
+            : Icon(
+                icon,
+                color: fg,
+                size: iconSize,
+              ),
       ),
     );
   }
 }
 
-/// Animated circular progress ring with glowing rounded sweep.
+/// Crisp architectural circular progress ring — zero blur glow.
 class YitteProgressRing extends StatelessWidget {
   final double progress; // 0.0..1.0
   final double size;
@@ -218,7 +121,7 @@ class YitteProgressRing extends StatelessWidget {
     super.key,
     required this.progress,
     this.size = 86,
-    this.strokeWidth = 8,
+    this.strokeWidth = 6,
     required this.color,
     this.trackColor,
     required this.child,
@@ -228,11 +131,12 @@ class YitteProgressRing extends StatelessWidget {
   Widget build(BuildContext context) {
     final clamped = progress.clamp(0.0, 1.0);
     final reduced = yitteMotionReduced(context);
-    final bgTrack = trackColor ?? color.withValues(alpha: 0.14);
+    final tokens = AppTheme.tokensOf(context);
+    final bgTrack = trackColor ?? tokens.borderSubtle;
 
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: clamped),
-      duration: reduced ? Duration.zero : const Duration(milliseconds: 650),
+      duration: reduced ? Duration.zero : const Duration(milliseconds: 520),
       curve: Curves.easeOutCubic,
       builder: (context, value, childWidget) {
         return SizedBox(
@@ -282,23 +186,8 @@ class _ProgressRingPainter extends CustomPainter {
 
     final rect = Rect.fromCircle(center: center, radius: radius);
     final sweep = progress * math.pi * 2;
-    final glowPaint = Paint()
-      ..color = color.withValues(alpha: 0.25)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth + 4
-      ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-    canvas.drawArc(rect, -math.pi / 2, sweep, false, glowPaint);
-
     final arcPaint = Paint()
-      ..shader = SweepGradient(
-        startAngle: -math.pi / 2,
-        endAngle: 3 * math.pi / 2,
-        colors: [
-          Color.lerp(color, Colors.white, 0.28) ?? color,
-          color,
-        ],
-      ).createShader(rect)
+      ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
@@ -310,7 +199,7 @@ class _ProgressRingPainter extends CustomPainter {
       old.progress != progress || old.color != color || old.trackColor != trackColor;
 }
 
-/// Visual audio voice-note player card with stylized waveform bars & glowing play orb.
+/// Crisp editorial audio player bar with monochrome play button and flat 1px border.
 class YitteAudioPlayerTile extends StatelessWidget {
   final bool playing;
   final String label;
@@ -329,61 +218,52 @@ class YitteAudioPlayerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
     final color = accentColor ?? Theme.of(context).colorScheme.primary;
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(10),
       onTap: onToggle,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: playing ? 0.16 : 0.09),
-          borderRadius: BorderRadius.circular(18),
+          color: playing ? tokens.subtleFill : tokens.elevated,
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: color.withValues(alpha: playing ? 0.45 : 0.22),
+            color: playing ? color : tokens.borderSubtle,
+            width: 1,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 34,
-              height: 34,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Color.lerp(color, Colors.white, 0.18) ?? color, color],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.35),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
+                color: color,
               ),
               child: Icon(
                 playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
                 color: Colors.white,
-                size: 20,
+                size: 18,
               ),
             ),
             const SizedBox(width: 10),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: _bars.asMap().entries.map((e) {
-                final h = 6.0 + e.value * 16.0;
+                final h = 5.0 + e.value * 14.0;
                 final active = playing && e.key.isEven;
                 return AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  width: 3,
-                  height: active ? h * 1.15 : h,
+                  duration: const Duration(milliseconds: 180),
+                  width: 2.5,
+                  height: active ? h * 1.12 : h,
                   margin: const EdgeInsets.symmetric(horizontal: 1.5),
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: playing ? 0.92 : 0.48),
-                    borderRadius: BorderRadius.circular(99),
+                    color: playing ? color : tokens.borderSubtle,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 );
               }).toList(),
@@ -396,8 +276,8 @@ class YitteAudioPlayerTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: color,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),
@@ -408,7 +288,7 @@ class YitteAudioPlayerTile extends StatelessWidget {
   }
 }
 
-/// Architectural 8-point Khatam geometric lattice with delicate hairline gold arcs.
+/// Architectural 8-point Khatam geometric lattice with delicate hairline strokes.
 class SanctuaryGeometryPainter extends CustomPainter {
   final Color strokeColor;
   final Color accentColor;
@@ -423,12 +303,12 @@ class SanctuaryGeometryPainter extends CustomPainter {
     final finePaint = Paint()
       ..color = strokeColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.9;
+      ..strokeWidth = 0.8;
 
     final haloPaint = Paint()
       ..color = accentColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.7;
+      ..strokeWidth = 0.6;
 
     const step = 68.0;
     for (double y = -step / 2; y < size.height + step; y += step) {
@@ -465,7 +345,7 @@ class SanctuaryGeometryPainter extends CustomPainter {
       oldDelegate.accentColor != accentColor;
 }
 
-/// Staggered, kinetic spring-feel entrance animation with reduced-motion bypass.
+/// Subtle, staggered editorial entrance animation with reduced-motion bypass.
 class YitteReveal extends StatefulWidget {
   final Widget child;
   final int order;
@@ -475,7 +355,7 @@ class YitteReveal extends StatefulWidget {
     super.key,
     required this.child,
     this.order = 0,
-    this.duration = const Duration(milliseconds: 420),
+    this.duration = const Duration(milliseconds: 280),
   });
 
   @override
@@ -487,7 +367,6 @@ class _YitteRevealState extends State<YitteReveal>
   late final AnimationController _controller;
   late final Animation<double> _opacity;
   late final Animation<Offset> _slide;
-  late final Animation<double> _scale;
 
   @override
   void initState() {
@@ -496,12 +375,11 @@ class _YitteRevealState extends State<YitteReveal>
     final curve = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
     _opacity = curve;
     _slide = Tween<Offset>(
-      begin: const Offset(0, 0.075),
+      begin: const Offset(0, 0.03),
       end: Offset.zero,
     ).animate(curve);
-    _scale = Tween<double>(begin: 0.96, end: 1.0).animate(curve);
 
-    final delayMs = (widget.order.clamp(0, 8)) * 55;
+    final delayMs = (widget.order.clamp(0, 8)) * 35;
     if (delayMs == 0) {
       _controller.forward();
     } else {
@@ -524,16 +402,13 @@ class _YitteRevealState extends State<YitteReveal>
       opacity: _opacity,
       child: SlideTransition(
         position: _slide,
-        child: ScaleTransition(
-          scale: _scale,
-          child: widget.child,
-        ),
+        child: widget.child,
       ),
     );
   }
 }
 
-/// Custom-painted Islamic Salat / Du'a prayer icon inside an arch (mihrab).
+/// Custom-painted fine monochrome Islamic Salat / Du'a prayer icon inside an arch (mihrab).
 class SanctuaryPrayerIcon extends StatelessWidget {
   final double size;
   final Color? color;
@@ -574,15 +449,15 @@ class _SanctuaryPrayerPainter extends CustomPainter {
     final s = size.width / 24.0;
 
     final goldPaint = Paint()
-      ..color = accentColor.withValues(alpha: 0.9)
+      ..color = accentColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5 * s
+      ..strokeWidth = 1.4 * s
       ..strokeCap = StrokeCap.round;
 
     final bodyPaint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.9 * s
+      ..strokeWidth = 1.7 * s
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
@@ -590,7 +465,6 @@ class _SanctuaryPrayerPainter extends CustomPainter {
       ..color = color
       ..style = PaintingStyle.fill;
 
-    // Pointed Islamic Mihrab arch
     final arch = Path()
       ..moveTo(3.2 * s, 20.5 * s)
       ..lineTo(3.2 * s, 10.5 * s)
@@ -599,17 +473,14 @@ class _SanctuaryPrayerPainter extends CustomPainter {
       ..lineTo(20.8 * s, 20.5 * s);
     canvas.drawPath(arch, goldPaint);
 
-    // Subtle prayer mat baseline
     canvas.drawLine(Offset(5.5 * s, 20.5 * s), Offset(18.5 * s, 20.5 * s), goldPaint);
 
-    // Muslim person in Julus / Du'a posture inside the sanctuary arch
-    canvas.drawCircle(Offset(13.6 * s, 9.6 * s), 1.9 * s, fillPaint);
+    canvas.drawCircle(Offset(13.6 * s, 9.6 * s), 1.8 * s, fillPaint);
 
     final posture = Path()
       ..moveTo(13.2 * s, 12.0 * s)
       ..quadraticBezierTo(11.6 * s, 14.6 * s, 10.4 * s, 17.6 * s)
       ..lineTo(15.6 * s, 17.6 * s)
-      // Hands raised in supplication (Du'a)
       ..moveTo(12.2 * s, 13.8 * s)
       ..lineTo(8.8 * s, 11.4 * s)
       ..lineTo(8.2 * s, 9.6 * s);
@@ -621,7 +492,7 @@ class _SanctuaryPrayerPainter extends CustomPainter {
       oldDelegate.color != color || oldDelegate.accentColor != accentColor;
 }
 
-/// Concentric tactile shockwave halo for spiritual Tasbīḥ orbs (finite pulse, never stalls tests).
+/// Crisp concentric hairline pulse for spiritual Tasbīḥ (finite animation, zero blur shadow).
 class YittePulseHalo extends StatefulWidget {
   final Widget child;
   final Color color;
@@ -632,7 +503,7 @@ class YittePulseHalo extends StatefulWidget {
     super.key,
     required this.child,
     required this.color,
-    this.maxRadiusBlur = 30,
+    this.maxRadiusBlur = 24,
     this.triggerKey,
   });
 
@@ -650,7 +521,7 @@ class _YittePulseHaloState extends State<YittePulseHalo>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 580),
+      duration: const Duration(milliseconds: 420),
     );
     _pulse = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
   }
@@ -677,17 +548,15 @@ class _YittePulseHaloState extends State<YittePulseHalo>
       builder: (context, child) {
         final wave = math.sin(_pulse.value * math.pi);
         return Transform.scale(
-          scale: 1.0 + (wave * 0.035),
+          scale: 1.0 + (wave * 0.025),
           child: Container(
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: widget.color.withValues(alpha: 0.20 + (wave * 0.24)),
-                  blurRadius: 18 + (wave * widget.maxRadiusBlur),
-                  spreadRadius: 2 + (wave * 8),
-                ),
-              ],
+              border: Border.all(
+                color: widget.color.withValues(alpha: 0.14 + (wave * 0.45)),
+                width: 1,
+              ),
             ),
             child: child,
           ),
@@ -698,7 +567,7 @@ class _YittePulseHaloState extends State<YittePulseHalo>
   }
 }
 
-/// Multi-model flagship surface card: Glassmorphic Aurora, 3D Tactile, Apple Minimal, or Classic.
+/// Strict flat editorial surface card — crisp 1px border, elevation 0, zero blurry shadows.
 class YitteSurfaceCard extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
@@ -728,90 +597,25 @@ class _YitteSurfaceCardState extends State<YitteSurfaceCard> {
   @override
   Widget build(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final reduced = yitteMotionReduced(context);
-    final model = tokens.visualModel;
     final radius = tokens.cardRadius;
 
-    final baseSurface = widget.color ??
-        (model == UiVisualModel.glassLuxe
-            ? tokens.elevated.withValues(alpha: isDark ? 0.84 : 0.88)
-            : tokens.elevated);
-
-    final effectiveBorder = widget.borderColor ??
-        (_hovered
-            ? tokens.goldAccent.withValues(alpha: 0.65)
-            : (model == UiVisualModel.dynamicCommunity
-                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.26)
-                : (model == UiVisualModel.glassLuxe
-                    ? (isDark
-                        ? Colors.white.withValues(alpha: 0.14)
-                        : Colors.white.withValues(alpha: 0.92))
-                    : tokens.borderSubtle)));
-
-    final borderWidth = switch (model) {
-      UiVisualModel.dynamicCommunity => 1.6,
-      UiVisualModel.glassLuxe => 1.35,
-      _ => widget.borderColor != null ? 1.4 : 1.0,
-    };
-
-    final shadows = switch (model) {
-      UiVisualModel.editorialMinimal => <BoxShadow>[
-          if (_hovered)
-            BoxShadow(
-              color: tokens.shadowTint,
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-        ],
-      UiVisualModel.dynamicCommunity => <BoxShadow>[
-          BoxShadow(
-            color: (widget.borderColor ?? Theme.of(context).colorScheme.primary)
-                .withValues(alpha: isDark ? 0.34 : 0.18),
-            blurRadius: _pressed ? 2 : 0,
-            offset: Offset(0, _pressed ? 1 : 4.5),
-          ),
-          BoxShadow(
-            color: tokens.shadowTint,
-            blurRadius: _hovered ? 22 : 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      UiVisualModel.glassLuxe => <BoxShadow>[
-          BoxShadow(
-            color: _hovered
-                ? tokens.goldAccent.withValues(alpha: 0.22)
-                : tokens.shadowTint,
-            blurRadius: _pressed ? 8 : (_hovered ? 32 : 24),
-            offset: Offset(0, _pressed ? 2 : (_hovered ? 12 : 8)),
-          ),
-        ],
-      UiVisualModel.sanctuaryClassic => <BoxShadow>[
-          BoxShadow(
-            color: _hovered
-                ? tokens.goldAccent.withValues(alpha: 0.16)
-                : tokens.shadowTint,
-            blurRadius: _pressed ? 6 : (_hovered ? 20 : 14),
-            offset: Offset(0, _pressed ? 2 : 5),
-          ),
-        ],
-    };
+    final baseSurface = widget.color ?? tokens.elevated;
+    final effectiveBorder = _hovered && widget.onTap != null
+        ? tokens.goldAccent
+        : (widget.borderColor ?? tokens.borderSubtle);
 
     final cardBody = MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: AnimatedContainer(
-        duration: reduced ? Duration.zero : const Duration(milliseconds: 180),
+        duration: reduced ? Duration.zero : const Duration(milliseconds: 140),
         curve: Curves.easeOutCubic,
-        transform: (reduced || widget.onTap == null)
-            ? Matrix4.identity()
-            : Matrix4.translationValues(0, _hovered && !_pressed ? -3.0 : 0.0, 0),
         margin: widget.margin,
         decoration: BoxDecoration(
           color: baseSurface,
           borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: effectiveBorder, width: borderWidth),
-          boxShadow: shadows,
+          border: Border.all(color: effectiveBorder, width: 1),
         ),
         child: Material(
           color: Colors.transparent,
@@ -832,15 +636,15 @@ class _YitteSurfaceCardState extends State<YitteSurfaceCard> {
 
     if (reduced || widget.onTap == null) return cardBody;
     return AnimatedScale(
-      scale: _pressed ? 0.975 : 1.0,
-      duration: const Duration(milliseconds: 130),
+      scale: _pressed ? 0.99 : 1.0,
+      duration: const Duration(milliseconds: 100),
       curve: Curves.easeOutCubic,
       child: cardBody,
     );
   }
 }
 
-/// Editorial status pill with vibrant chromatic clarity.
+/// Editorial status pill — clean 1px border, flat tint, zero shadow.
 class YitteStatusPill extends StatelessWidget {
   final String label;
   final IconData? icon;
@@ -858,20 +662,20 @@ class YitteStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final bg = backgroundColor ?? tokens.goldSurface;
+    final bg = backgroundColor ?? tokens.subtleFill;
     final fg = foregroundColor ?? Theme.of(context).colorScheme.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: fg.withValues(alpha: 0.24)),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: tokens.borderSubtle, width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 14, color: fg),
+            Icon(icon, size: 13.5, color: fg),
             const SizedBox(width: 5),
           ],
           Flexible(
@@ -882,7 +686,7 @@ class YitteStatusPill extends StatelessWidget {
               style: TextStyle(
                 color: fg,
                 fontSize: 11.5,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -892,7 +696,7 @@ class YitteStatusPill extends StatelessWidget {
   }
 }
 
-/// Serene architectural empty state with dimensional gradient badge.
+/// Sober editorial empty state with monochrome icon frame and direct CTA.
 class YitteEmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -911,19 +715,17 @@ class YitteEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = AppTheme.tokensOf(context);
     final primary = Theme.of(context).colorScheme.primary;
     return YitteSurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 26),
-      borderColor: tokens.borderAccent,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           YitteIconBadge(
             icon: icon,
             color: primary,
-            size: 56,
-            iconSize: 28,
+            size: 48,
+            iconSize: 22,
           ),
           const SizedBox(height: 14),
           Text(
@@ -950,7 +752,7 @@ class YitteEmptyState extends StatelessWidget {
   }
 }
 
-/// Subtle animated loading indicator banner for async AI / upload transitions.
+/// Subtle loading indicator banner for async transitions.
 class YitteLoadingBanner extends StatelessWidget {
   final String message;
 

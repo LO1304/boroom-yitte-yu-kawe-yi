@@ -232,7 +232,7 @@ class _QuizArenaScreenState extends ConsumerState<QuizArenaScreen>
                     icon: Icons.leaderboard_outlined,
                     title: 'Aucun score enregistré pour l’instant',
                     description:
-                        'Terminez un match pour inaugurer le classement réel des participants.',
+                        'Lancez une première manche pour ouvrir le tableau des scores.',
                   )
                 : YitteSurfaceCard(
                     padding: const EdgeInsets.symmetric(vertical: 6),

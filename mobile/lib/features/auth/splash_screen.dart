@@ -70,15 +70,9 @@ class _SplashScreenState extends State<SplashScreen>
                             shape: BoxShape.circle,
                             color: YitteColors.emerald,
                             border: Border.all(
-                              color: YitteColors.goldBright.withValues(alpha: 0.65),
-                              width: 1.6,
+                              color: YitteColors.gold,
+                              width: 1.5,
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: YitteColors.goldBright.withValues(alpha: 0.2),
-                                blurRadius: 28,
-                              ),
-                            ],
                           ),
                           child: const Icon(
                             Icons.auto_stories_rounded,

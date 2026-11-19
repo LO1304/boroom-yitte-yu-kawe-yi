@@ -3,10 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../app/state/app_providers.dart';
-import '../../core/services/backend_repository.dart';
-import '../../core/services/speech_bridge.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/editorial_widgets.dart';
+
+class _ZikrFormula {
+  final String id;
+  final String arabic;
+  final String transliteration;
+  final String translation;
+
+  const _ZikrFormula({
+    required this.id,
+    required this.arabic,
+    required this.transliteration,
+    required this.translation,
+  });
+}
 
 class ZikrScreen extends ConsumerStatefulWidget {
   const ZikrScreen({super.key});
@@ -16,262 +28,207 @@ class ZikrScreen extends ConsumerStatefulWidget {
 }
 
 class _ZikrScreenState extends ConsumerState<ZikrScreen> {
-  int _target = 33;
-  bool _inLiveRoom = false;
-  bool _liveKitConnected = false;
-  bool _recitingAudio = false;
+  static const List<_ZikrFormula> _formulas = [
+    _ZikrFormula(
+      id: 'sallallahu',
+      arabic: 'صَلَّى اللهُ عَلَى مُحَمَّدٍ',
+      transliteration: 'Ṣallallāhu ʿalā Muḥammad',
+      translation: 'Que la paix et la bénédiction d’Allah soient sur Muḥammad (ﷺ).',
+    ),
+    _ZikrFormula(
+      id: 'subhanallah',
+      arabic: 'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ، سُبْحَانَ اللَّهِ الْعَظِيمِ',
+      transliteration: 'SubḥānAllāhi wa bi-ḥamdih, SubḥānAllāhi l-ʿAẓīm',
+      translation: 'Gloire et louange à Allah, Gloire à Allah l’Immense.',
+    ),
+    _ZikrFormula(
+      id: 'istighfar',
+      arabic: 'أَسْتَغْفِرُ اللَّهَ الْعَظِيمَ وَأَتُوبُ إِلَيْهِ',
+      transliteration: 'Astaghfirullāha l-ʿAẓīm wa atūbu ilayh',
+      translation: 'Je demande pardon à Allah l’Immense et je me repens à Lui.',
+    ),
+    _ZikrFormula(
+      id: 'tahlil',
+      arabic: 'لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ',
+      transliteration: 'Lā ilāha illAllāhu waḥdahu lā sharīka lah',
+      translation: 'Nulle divinité n’est digne d’adoration sauf Allah, Seul, sans associé.',
+    ),
+    _ZikrFormula(
+      id: 'baqiyat',
+      arabic: 'سُبْحَانَ اللَّهِ، وَالْحَمْدُ لِلَّهِ، وَلَا إِلَٰهَ إِلَّا اللَّهُ، وَاللَّهُ أَكْبَرُ',
+      transliteration: 'SubḥānAllāh, wal-ḥamdu lillāh, wa lā ilāha illAllāh, wallāhu akbar',
+      translation: 'Gloire à Allah, louange à Allah, nulle divinité sauf Allah, Allah est le Plus Grand.',
+    ),
+    _ZikrFormula(
+      id: 'hasbunallah',
+      arabic: 'حَسْبُنَا اللَّهُ وَنِعْمَ الْوَكِيلُ',
+      transliteration: 'ḤasbunAllāhu wa niʿma l-wakīl',
+      translation: 'Allah nous suffit, quel excellent Garant.',
+    ),
+  ];
 
-  @override
-  void dispose() {
-    SpeechBridge.stopSpeaking();
-    super.dispose();
+  int _target = 33;
+  String _selectedFormulaId = 'sallallahu';
+  String? _customFreeZikr;
+
+  _ZikrFormula get _activeFormula => _formulas.firstWhere(
+        (f) => f.id == _selectedFormulaId,
+        orElse: () => _formulas.first,
+      );
+
+  Future<void> _openCustomZikrDialog(BuildContext context) async {
+    final ctrl = TextEditingController(text: _customFreeZikr ?? '');
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Zikr personnel libre'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'Écrivez le Zikr que vous souhaitez pratiquer',
+            hintText: 'Ex. صَلَّى اللهُ عَلَى مُحَمَّدٍ ou autre invocation...',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final clean = ctrl.text.trim();
+              setState(() {
+                _customFreeZikr = clean.isEmpty ? null : clean;
+              });
+              Navigator.pop(ctx);
+            },
+            child: const Text('Choisir'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final eco = ref.watch(ecosystemProvider);
-    final liveKit = ref.watch(liveKitServiceProvider);
-    final session = eco.zikrSessions.first;
+    final activeArabic = _customFreeZikr ?? _activeFormula.arabic;
 
     return Scaffold(
       appBar: AppBar(title: const Text('YITTÉ ZIKR')),
       body: YitteAuroraBackdrop(
         child: ListView(
           padding: const EdgeInsets.all(16),
-        children: [
-          YitteReveal(
-            order: 0,
-            child: EditorialHeroBanner(
-              eyebrow: 'SESSIONS SPIRITUELLES COLLECTIVES',
-              accentColor: YitteDomainAccents.spirituality,
-              title: 'Sérénité, Rappel & Fraternité',
-              subtitle:
-                  'Aucune compétition, aucun classement ni badge de piété : un espace exclusivement dédié au recueillement et aux références authentiques.',
-              trailing: Container(
-                padding: const EdgeInsets.only(left: 10, right: 4),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Rappel',
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.tokensOf(context).visualModel ==
-                                UiVisualModel.editorialMinimal
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Switch(
-                      value: eco.zikrReminderEnabled,
-                      onChanged: (v) =>
-                          ref.read(ecosystemProvider.notifier).toggleZikrReminder(v),
-                    ),
-                  ],
-                ),
+          children: [
+            const YitteReveal(
+              order: 0,
+              child: EditorialHeroBanner(
+                eyebrow: 'ZIKR LIBRE & OBJECTIF PERSONNEL',
+                accentColor: YitteDomainAccents.spirituality,
+                title: 'Sérénité, Rappel & Recueillement',
+                subtitle:
+                    'Aucune compétition, aucun classement ni badge de piété : choisissez librement votre Zikr et votre objectif, à votre rythme, sans horaire imposé.',
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 16),
+            SectionHeader(
+              title: 'Choisir votre Zikr',
+              actionLabel: '+ Zikr libre',
+              onAction: () => _openCustomZikrDialog(context),
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      const SanctuaryPrayerIcon(size: 28),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          session.title,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(session.recurrenceLabel,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, color: YitteColors.gold)),
-                  const SizedBox(height: 6),
-                  Text(session.programDetails,
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  const Divider(height: 22),
-                  Directionality(
-                    textDirection: TextDirection.rtl,
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        session.arabicText,
-                        style: AppTheme.arabicStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    session.transliteration,
-                    style: const TextStyle(
-                        fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(session.frenchTranslation),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 6,
-                    children: session.verifiedReferences
-                        .map((r) => Chip(
-                              avatar: const Icon(Icons.verified_outlined, size: 16),
-                              label: Text(r, style: const TextStyle(fontSize: 11)),
-                            ))
-                        .toList(),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: Icon(_inLiveRoom ? Icons.call_end_rounded : Icons.headset_mic_rounded),
-                      label: Text(_inLiveRoom
-                          ? 'Quitter le salon audio Zikr'
-                          : 'Rejoindre le salon audio en direct'),
-                      onPressed: () async {
-                        if (_inLiveRoom) {
-                          SpeechBridge.stopSpeaking();
-                          await liveKit.disconnect();
-                          if (mounted) {
-                            setState(() {
-                              _inLiveRoom = false;
-                              _liveKitConnected = false;
-                              _recitingAudio = false;
-                            });
-                          }
-                          return;
-                        }
-                        final creds = await BackendRepository.instance
-                            .fetchLiveKitJoinToken(session.id);
-                        if (creds == null) {
-                          if (!context.mounted) return;
-                          setState(() {
-                            _inLiveRoom = true;
-                            _liveKitConnected = false;
-                          });
-                          return;
-                        }
-                        await liveKit.connect(
-                          livekitUrl: creds['url']!,
-                          token: creds['token']!,
-                          publishAudio: false,
-                        );
-                        if (mounted) {
-                          setState(() {
-                            _inLiveRoom = true;
-                            _liveKitConnected = true;
-                          });
-                        }
-                      },
-                    ),
-                  ),
-                  if (_inLiveRoom) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: YitteColors.emeraldSoft,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _liveKitConnected
-                                ? 'Salon audio WebRTC LiveKit actif • Écoute en direct'
-                                : 'Salon audio Zikr actif (mode guidé local — LiveKit prêt si configuré)',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12.5,
-                              color: YitteColors.emerald,
-                            ),
+                  ..._formulas.map((f) {
+                    final selected =
+                        _customFreeZikr == null && _selectedFormulaId == f.id;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(
+                          f.arabic,
+                          style: AppTheme.arabicStyle(
+                            color: selected
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.onSurface,
+                            fontSize: 15,
                           ),
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: [
-                              OutlinedButton.icon(
-                                icon: Icon(_recitingAudio
-                                    ? Icons.stop_rounded
-                                    : Icons.volume_up_rounded),
-                                label: Text(_recitingAudio
-                                    ? 'Arrêter récitation arabe'
-                                    : 'Écouter invocation en arabe'),
-                                onPressed: () {
-                                  if (_recitingAudio) {
-                                    SpeechBridge.stopSpeaking();
-                                    setState(() => _recitingAudio = false);
-                                  } else {
-                                    SpeechBridge.speak(
-                                      session.arabicText,
-                                      locale: 'ar-SA',
-                                    );
-                                    setState(() => _recitingAudio = true);
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
+                        selected: selected,
+                        onSelected: (_) => setState(() {
+                          _selectedFormulaId = f.id;
+                          _customFreeZikr = null;
+                        }),
                       ),
+                    );
+                  }),
+                  if (_customFreeZikr != null)
+                    ChoiceChip(
+                      label: Text(_customFreeZikr!),
+                      selected: true,
+                      onSelected: (_) => _openCustomZikrDialog(context),
                     ),
-                  ],
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 18),
-          const SectionHeader(
-            title: 'Ouverture Tasbīḥ Quotidienne (Objectif & Durée libres)',
-          ),
-          const SizedBox(height: 10),
-          _DailySalawatGoalCard(
-            monthlyCount: eco.salawatMonthlyCount,
-            monthlyTarget: eco.salawatMonthlyTarget,
-            durationDays: eco.salawatDurationDays,
-            customTitle: eco.salawatCustomTitle,
-            todayCount: eco.salawatTodayCount,
-            cycleStartIso: eco.salawatCycleStartIso,
-            dailyReminderEnabled: eco.dailyTasbihReminderEnabled,
-            openOnLaunch: eco.openTasbihOnLaunch,
-            onAddStep: (step) {
-              HapticFeedback.lightImpact();
-              ref.read(ecosystemProvider.notifier).incrementSalawat(step: step);
-            },
-            onConfigureGoal: () => _openGoalConfigDialog(context, eco),
-            onToggleDailyReminder: (v) => ref
-                .read(ecosystemProvider.notifier)
-                .toggleDailyTasbihReminder(v),
-            onToggleOpenOnLaunch: (v) =>
-                ref.read(ecosystemProvider.notifier).toggleOpenTasbihOnLaunch(v),
-            onResetCycle: () =>
-                ref.read(ecosystemProvider.notifier).resetSalawatCycle(),
-          ),
-          const SizedBox(height: 18),
-          const SectionHeader(title: 'Compteur Personnel de Tasbīḥ (Privé)'),
-          const SizedBox(height: 10),
-          Card(
-            child: Padding(
+            const SizedBox(height: 16),
+            const SectionHeader(
+              title: 'Objectif Personnel (Libre)',
+            ),
+            const SizedBox(height: 10),
+            _DailySalawatGoalCard(
+              arabicFormula: activeArabic,
+              transliteration: _customFreeZikr != null
+                  ? 'Formule personnelle sélectionnée'
+                  : _activeFormula.transliteration,
+              translation: _customFreeZikr != null
+                  ? 'Pratique libre selon votre intention et votre rythme.'
+                  : _activeFormula.translation,
+              monthlyCount: eco.salawatMonthlyCount,
+              monthlyTarget: eco.salawatMonthlyTarget,
+              durationDays: eco.salawatDurationDays,
+              customTitle: eco.salawatCustomTitle,
+              todayCount: eco.salawatTodayCount,
+              cycleStartIso: eco.salawatCycleStartIso,
+              dailyReminderEnabled: eco.dailyTasbihReminderEnabled,
+              openOnLaunch: eco.openTasbihOnLaunch,
+              onAddStep: (step) {
+                HapticFeedback.lightImpact();
+                ref.read(ecosystemProvider.notifier).incrementSalawat(step: step);
+              },
+              onConfigureGoal: () => _openGoalConfigDialog(context, eco),
+              onToggleDailyReminder: (enabled) => ref
+                  .read(ecosystemProvider.notifier)
+                  .toggleDailyTasbihReminder(enabled),
+              onToggleOpenOnLaunch: (enabled) => ref
+                  .read(ecosystemProvider.notifier)
+                  .toggleOpenTasbihOnLaunch(enabled),
+              onResetCycle: () =>
+                  ref.read(ecosystemProvider.notifier).resetSalawatCycle(),
+            ),
+            const SizedBox(height: 18),
+            const SectionHeader(title: 'Compteur Tasbīḥ (Privé)'),
+            const SizedBox(height: 10),
+            YitteSurfaceCard(
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
+                  Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: Text(
+                      activeArabic,
+                      textAlign: TextAlign.center,
+                      style: AppTheme.arabicStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontSize: 22,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   SegmentedButton<int>(
                     showSelectedIcon: false,
                     segments: const [
@@ -297,7 +254,8 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                       size: 196,
                       strokeWidth: 9,
                       color: AppTheme.tokensOf(context).goldAccent,
-                      trackColor: YitteDomainAccents.spirituality.withValues(alpha: 0.16),
+                      trackColor:
+                          YitteDomainAccents.spirituality.withValues(alpha: 0.16),
                       child: GestureDetector(
                         onTap: () {
                           HapticFeedback.lightImpact();
@@ -307,35 +265,16 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                               .incrementSalawat(step: 1);
                         },
                         child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 220),
+                          duration: const Duration(milliseconds: 180),
                           width: 160,
                           height: 160,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppTheme.tokensOf(context).heroStart,
-                                AppTheme.tokensOf(context).heroEnd,
-                              ],
-                            ),
+                            color: YitteColors.emerald,
                             border: Border.all(
-                              color: AppTheme.tokensOf(context)
-                                  .goldAccent
-                                  .withValues(alpha: 0.65),
-                              width: 2.2,
+                              color: AppTheme.tokensOf(context).goldAccent,
+                              width: 1.5,
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .primary
-                                    .withValues(alpha: 0.36),
-                                blurRadius: 24,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
                           ),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -371,12 +310,15 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                   Wrap(
                     spacing: 12,
                     runSpacing: 6,
-                    alignment: WrapAlignment.center,
                     crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.center,
                     children: [
-                      Text('Sessions personnelles : ${eco.personalZikrSessionsCount}'),
+                      Text(
+                        'Sessions personnelles : ${eco.personalZikrSessionsCount}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                       TextButton.icon(
-                        icon: const Icon(Icons.refresh_rounded),
+                        icon: const Icon(Icons.check_circle_outline_rounded),
                         label: const Text('Clôturer & réinitialiser'),
                         onPressed: () => ref
                             .read(ecosystemProvider.notifier)
@@ -387,10 +329,9 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                 ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -443,10 +384,10 @@ class _GoalConfigDialogState extends State<_GoalConfigDialog> {
   static const _targetPresets = [1000, 3000, 10000, 33000, 100000];
   static const _durationPresets = [7, 15, 30, 40, 90, 365];
   static const _formulaPresets = [
-    'Ṣalātu ʿalā an-Nabī',
-    'SubḥānAllāh wa bi-ḥamdih',
-    'Astaghfirullāh al-ʿAẓīm',
-    'Lā ilāha illAllāh',
+    'صَلَّى اللهُ عَلَى مُحَمَّدٍ',
+    'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ',
+    'أَسْتَغْفِرُ اللَّهَ الْعَظِيمَ',
+    'لَا إِلَٰهَ إِلَّا اللَّهُ',
   ];
 
   @override
@@ -467,65 +408,60 @@ class _GoalConfigDialogState extends State<_GoalConfigDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final parsedTarget =
-        int.tryParse(_targetCtrl.text.trim())?.clamp(1, 10000000) ??
-            widget.initialTarget;
-    final parsedDays =
-        int.tryParse(_daysCtrl.text.trim())?.clamp(1, 3650) ??
-            widget.initialDays;
-    final dailyPace = (parsedTarget / parsedDays).ceil();
+    final parsedTarget = int.tryParse(_targetCtrl.text.trim()) ?? widget.initialTarget;
+    final parsedDays = (int.tryParse(_daysCtrl.text.trim()) ?? widget.initialDays)
+        .clamp(1, 3650);
+    final dailyAvg = (parsedTarget / parsedDays).ceil().clamp(1, parsedTarget);
 
     return AlertDialog(
-      title: const Text('Configurer objectif & durée'),
+      title: const Text('Personnaliser mon objectif de Zikr'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Choisissez librement votre formule, la quantité cible et le nombre de jours :',
+              'Choisissez librement votre formule, votre objectif et votre durée.',
               style: TextStyle(fontSize: 12.5),
             ),
             const SizedBox(height: 10),
+            TextField(
+              controller: _titleCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Formule / intitulé du Zikr',
+              ),
+            ),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: _formulaPresets
                   .map(
-                    (f) => ChoiceChip(
-                      label: Text(f, style: const TextStyle(fontSize: 11.5)),
-                      selected: _titleCtrl.text.trim() == f,
-                      onSelected: (_) => setState(() => _titleCtrl.text = f),
+                    (f) => ActionChip(
+                      label: Text(f, style: const TextStyle(fontSize: 12)),
+                      onPressed: () => setState(() => _titleCtrl.text = f),
                     ),
                   )
                   .toList(),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _titleCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Invocation / Formule personnalisée',
-              ),
-              onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _targetCtrl,
               keyboardType: TextInputType.number,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'Objectif total (répétitions)',
               ),
-              onChanged: (_) => setState(() {}),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: _targetPresets
                   .map(
-                    (n) => ActionChip(
-                      label: Text('$n', style: const TextStyle(fontSize: 11.5)),
-                      onPressed: () => setState(() => _targetCtrl.text = '$n'),
+                    (v) => ActionChip(
+                      label: Text('$v'),
+                      onPressed: () => setState(() => _targetCtrl.text = '$v'),
                     ),
                   )
                   .toList(),
@@ -534,47 +470,35 @@ class _GoalConfigDialogState extends State<_GoalConfigDialog> {
             TextField(
               controller: _daysCtrl,
               keyboardType: TextInputType.number,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'Durée souhaitée (en jours)',
               ),
-              onChanged: (_) => setState(() {}),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: _durationPresets
                   .map(
                     (d) => ActionChip(
-                      label: Text('${d}j', style: const TextStyle(fontSize: 11.5)),
+                      label: Text('${d}j'),
                       onPressed: () => setState(() => _daysCtrl.text = '$d'),
                     ),
                   )
                   .toList(),
             ),
             const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: YitteColors.emeraldSoft,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                'Rythme quotidien conseillé : $dailyPace / jour pendant $parsedDays jour(s)',
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: YitteColors.inkDark,
-                ),
-              ),
+            Text(
+              'Rythme indicatif : ~$dailyAvg répétitions / jour sur $parsedDays jour(s).',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5),
             ),
-            SwitchListTile(
+            CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               value: _resetProgress,
-              onChanged: (v) => setState(() => _resetProgress = v),
+              onChanged: (v) => setState(() => _resetProgress = v ?? false),
               title: const Text(
-                'Repartir à zéro pour ce cycle',
+                'Repartir de 0 pour ce nouveau cycle',
                 style: TextStyle(fontSize: 13),
               ),
             ),
@@ -604,6 +528,9 @@ class _GoalConfigDialogState extends State<_GoalConfigDialog> {
 }
 
 class _DailySalawatGoalCard extends StatelessWidget {
+  final String arabicFormula;
+  final String transliteration;
+  final String translation;
   final int monthlyCount;
   final int monthlyTarget;
   final int durationDays;
@@ -619,6 +546,9 @@ class _DailySalawatGoalCard extends StatelessWidget {
   final VoidCallback onResetCycle;
 
   const _DailySalawatGoalCard({
+    required this.arabicFormula,
+    required this.transliteration,
+    required this.translation,
     required this.monthlyCount,
     required this.monthlyTarget,
     required this.durationDays,
@@ -648,130 +578,128 @@ class _DailySalawatGoalCard extends StatelessWidget {
     final dailyQuota = (monthlyTarget / safeDays).ceil().clamp(1, monthlyTarget);
     final todayRatio = (todayCount / dailyQuota).clamp(0.0, 1.0);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    '$customTitle — $monthlyTarget sur $safeDays jour(s)',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Chip(
-                  label: Text('${(monthlyRatio * 100).toStringAsFixed(1)}%'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.tune_rounded, size: 18),
-              label: const Text('Configurer objectif & durée'),
-              onPressed: onConfigureGoal,
-            ),
-            const SizedBox(height: 10),
-            Directionality(
-              textDirection: TextDirection.rtl,
-              child: Align(
-                alignment: Alignment.centerRight,
+    return YitteSurfaceCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
                 child: Text(
-                  'اللَّهُمَّ صَلِّ عَلَى مُحَمَّدٍ وَعَلَى آلِ مُحَمَّدٍ',
-                  style: AppTheme.arabicStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 20,
-                  ),
+                  '$customTitle — $monthlyTarget sur $safeDays jour(s)',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Chip(
+                label: Text('${(monthlyRatio * 100).toStringAsFixed(1)}%'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.tune_rounded, size: 18),
+            label: const Text('Configurer objectif & durée'),
+            onPressed: onConfigureGoal,
+          ),
+          const SizedBox(height: 12),
+          Directionality(
+            textDirection: TextDirection.rtl,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                arabicFormula,
+                style: AppTheme.arabicStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 24,
                 ),
               ),
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Allāhumma ṣalli ʿalā Muḥammadin wa ʿalā āli Muḥammad',
-              style: TextStyle(fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            transliteration,
+            style: const TextStyle(
+              fontStyle: FontStyle.italic,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 4),
-            const Text(
-              '« Ô Allah, accorde Ta bénédiction à Muḥammad ainsi qu’à sa famille. » — Sahih Muslim n° 408 (aussi numéroté 384) : celui qui prie une fois sur le Prophète (ﷺ), Allah prie dix fois sur lui.',
-              style: TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 4),
+          Text(translation, style: const TextStyle(fontSize: 12.5)),
+          const Divider(height: 22),
+          Text(
+            'Progression du cycle (privée) : $monthlyCount / $monthlyTarget',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: monthlyRatio,
+              minHeight: 10,
+              backgroundColor: YitteColors.emeraldSoft,
+              color: YitteDomainAccents.spirituality,
             ),
-            const Divider(height: 22),
-            Text(
-              'Progression du cycle (privée) : $monthlyCount / $monthlyTarget',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Aujourd’hui : $todayCount / $dailyQuota conseillés • Reste $remainingCount sur $remainingDays jour(s) (~$suggestedDaily/j)',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12.5),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: todayRatio,
+              minHeight: 7,
+              backgroundColor: YitteColors.goldSoft,
+              color: YitteColors.gold,
             ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: monthlyRatio,
-                minHeight: 10,
-                backgroundColor: YitteColors.emeraldSoft,
-                color: YitteColors.emerald,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ElevatedButton(
+                onPressed: () => onAddStep(1),
+                child: const Text('+1'),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Aujourd’hui : $todayCount / $dailyQuota conseillés • Reste $remainingCount sur $remainingDays jour(s) (~$suggestedDaily/j)',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12.5),
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: todayRatio,
-                minHeight: 7,
-                backgroundColor: YitteColors.goldSoft,
-                color: YitteColors.gold,
+              OutlinedButton(
+                onPressed: () => onAddStep(33),
+                child: const Text('+33'),
               ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ElevatedButton(
-                  onPressed: () => onAddStep(1),
-                  child: const Text('+1'),
-                ),
-                OutlinedButton(
-                  onPressed: () => onAddStep(33),
-                  child: const Text('+33'),
-                ),
-                OutlinedButton(
-                  onPressed: () => onAddStep(100),
-                  child: const Text('+100'),
-                ),
-                TextButton(
-                  onPressed: onResetCycle,
-                  child: Text('Nouveau cycle (${safeDays}j)'),
-                ),
-              ],
-            ),
-            const Divider(height: 20),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Rappel d’ouverture Tasbīḥ chaque jour (07h00)'),
-              subtitle: const Text(
-                'Notification locale quotidienne dédiée à votre objectif personnel.',
+              OutlinedButton(
+                onPressed: () => onAddStep(100),
+                child: const Text('+100'),
               ),
-              value: dailyReminderEnabled,
-              onChanged: onToggleDailyReminder,
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Ouvrir directement sur Yitté Tasbīḥ au lancement'),
-              subtitle: const Text(
-                'Affiche cet espace serein dès l’ouverture quotidienne de l’application.',
+              TextButton(
+                onPressed: onResetCycle,
+                child: Text('Nouveau cycle (${safeDays}j)'),
               ),
-              value: openOnLaunch,
-              onChanged: onToggleOpenOnLaunch,
+            ],
+          ),
+          const Divider(height: 20),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Activer un rappel personnel discret'),
+            subtitle: const Text(
+              'Notification locale dédiée à votre objectif personnel (sans horaire imposé).',
             ),
-          ],
-        ),
+            value: dailyReminderEnabled,
+            onChanged: onToggleDailyReminder,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Ouvrir directement sur Yitté Zikr au lancement'),
+            subtitle: const Text(
+              'Affiche cet espace serein dès l’ouverture de l’application.',
+            ),
+            value: openOnLaunch,
+            onChanged: onToggleOpenOnLaunch,
+          ),
+        ],
       ),
     );
   }

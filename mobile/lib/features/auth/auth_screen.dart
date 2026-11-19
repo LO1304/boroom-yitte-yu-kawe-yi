@@ -137,11 +137,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       padding: const EdgeInsets.only(bottom: 14),
                       child: YitteIconBadge(
                         color: Theme.of(context).colorScheme.primary,
-                        size: 62,
-                        customIcon: const SanctuaryPrayerIcon(
-                          size: 32,
-                          color: Colors.white,
-                        ),
+                        size: 56,
+                        customIcon: const SanctuaryPrayerIcon(size: 28),
                       ),
                     ),
                   ),

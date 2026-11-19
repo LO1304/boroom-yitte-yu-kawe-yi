@@ -472,80 +472,40 @@ class _ArenaEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = AppTheme.tokensOf(context).cardRadius;
-    final darkShade = Color.lerp(color, Colors.black, 0.35) ?? color;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [color, darkShade],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.34),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(radius),
-          onTap: onTap,
-          child: Stack(
+    final tokens = AppTheme.tokensOf(context);
+    return YitteSurfaceCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Positioned(
-                right: -14,
-                bottom: -14,
-                child: Icon(
-                  icon,
-                  size: 74,
-                  color: Colors.white.withValues(alpha: 0.12),
-                ),
+              YitteIconBadge(
+                icon: icon,
+                color: color,
+                size: 42,
+                iconSize: 20,
               ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: Icon(icon, color: Colors.white, size: 24),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16.5,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
+              const Spacer(),
+              Icon(
+                Icons.arrow_outward_rounded,
+                size: 16,
+                color: tokens.goldAccent,
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 3),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12),
+          ),
+        ],
       ),
     );
   }

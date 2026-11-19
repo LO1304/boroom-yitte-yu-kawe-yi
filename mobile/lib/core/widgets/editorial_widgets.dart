@@ -77,236 +77,65 @@ class EditorialHeroBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final model = tokens.visualModel;
-    final radius = tokens.cardRadius;
-    final primary = accentColor ?? Theme.of(context).colorScheme.primary;
-
-    // Model 2: Apple/Notion clean minimal editorial card — zero heavy dark wall.
-    if (model == UiVisualModel.editorialMinimal) {
-      return Container(
-        decoration: BoxDecoration(
-          color: tokens.elevated,
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: tokens.borderSubtle),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(radius),
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(color: primary, width: 4.5),
-              ),
-            ),
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        eyebrow.toUpperCase(),
-                        style: TextStyle(
-                          color: primary,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.9,
-                        ),
-                      ),
-                    ),
-                    if (trailing != null) ...[
-                      const SizedBox(width: 10),
-                      trailing!,
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                if (actions.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Wrap(spacing: 10, runSpacing: 8, children: actions),
-                ],
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    final startColor = switch (model) {
-      UiVisualModel.dynamicCommunity => accentColor ?? tokens.heroStart,
-      UiVisualModel.glassLuxe =>
-        accentColor != null ? Color.lerp(accentColor, tokens.heroStart, 0.35)! : tokens.heroStart,
-      _ => tokens.heroStart,
-    };
-    final endColor = switch (model) {
-      UiVisualModel.dynamicCommunity =>
-        Color.lerp(startColor, tokens.goldAccent, 0.36) ?? tokens.heroEnd,
-      UiVisualModel.glassLuxe =>
-        Color.lerp(startColor, Colors.black, 0.42) ?? tokens.heroEnd,
-      _ => tokens.heroEnd,
-    };
+    final primary = Theme.of(context).colorScheme.primary;
+    final ruleColor = accentColor == YitteColors.gold ||
+            accentColor == YitteColors.goldBright
+        ? tokens.goldAccent
+        : primary;
 
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: [
-          BoxShadow(
-            color: startColor.withValues(alpha: 0.22),
-            blurRadius: model == UiVisualModel.glassLuxe ? 26 : 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        color: tokens.elevated,
+        borderRadius: BorderRadius.circular(tokens.cardRadius),
+        border: Border.all(color: tokens.borderSubtle, width: 1),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: BorderRadius.circular(tokens.cardRadius),
         child: Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [startColor, endColor],
-            ),
-            border: Border.all(
-              color: Colors.white.withValues(
-                alpha: model == UiVisualModel.glassLuxe ? 0.20 : 0.14,
-              ),
+            border: Border(
+              left: BorderSide(color: ruleColor, width: 3),
             ),
           ),
-          child: Stack(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (model == UiVisualModel.sanctuaryClassic)
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: SanctuaryGeometryPainter(
-                      strokeColor: tokens.goldAccent.withValues(alpha: 0.095),
-                      accentColor: Colors.white.withValues(alpha: 0.035),
-                    ),
-                  ),
-                )
-              else ...[
-                Positioned(
-                  right: -34,
-                  top: -38,
-                  child: Container(
-                    width: 150,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          tokens.goldAccent.withValues(alpha: 0.28),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: -24,
-                  bottom: -48,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: 0.12),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              Positioned(
-                top: 0,
-                left: 22,
-                right: 22,
-                child: Container(
-                  height: 1.5,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.transparent,
-                        Colors.white.withValues(alpha: 0.55),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(99),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.26),
-                              ),
-                            ),
-                            child: Text(
-                              eyebrow,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.7,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (trailing != null) ...[
-                          const SizedBox(width: 10),
-                          trailing!,
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      subtitle,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Flexible(
+                    child: Text(
+                      eyebrow.toUpperCase(),
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.86),
-                        fontSize: 13,
-                        height: 1.44,
+                        color: tokens.goldAccent,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.25,
                       ),
                     ),
-                    if (actions.isNotEmpty) ...[
-                      const SizedBox(height: 14),
-                      Wrap(spacing: 10, runSpacing: 8, children: actions),
-                    ],
+                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: 10),
+                    trailing!,
                   ],
-                ),
+                ],
               ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 5),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              if (actions.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Wrap(spacing: 10, runSpacing: 8, children: actions),
+              ],
             ],
           ),
         ),
@@ -335,16 +164,9 @@ class SectionHeader extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 3.5,
-            height: 20,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [tokens.goldAccent, tokens.goldAccent.withValues(alpha: 0.35)],
-              ),
-              borderRadius: BorderRadius.circular(4),
-            ),
+            width: 2.5,
+            height: 18,
+            color: tokens.goldAccent,
           ),
           const SizedBox(width: 10),
           Expanded(

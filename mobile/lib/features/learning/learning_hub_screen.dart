@@ -66,12 +66,12 @@ class LearningHubScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _PillarTile(
-            icon: Icons.mosque_rounded,
-            customIcon: const SanctuaryPrayerIcon(size: 28, color: Colors.white),
+            icon: Icons.mosque_outlined,
+            customIcon: const SanctuaryPrayerIcon(size: 24),
             color: YitteDomainAccents.spirituality,
             title: 'Yitté Zikr & Ressources Spirituelles',
             subtitle:
-                'Salat & rappels Samedi 20h00 GMT, compteur Tasbih personnel et références vérifiées.',
+                'Choix libre du dhikr (صَلَّى اللهُ عَلَى مُحَمَّدٍ), objectif personnel et compteur Tasbīḥ.',
             onTap: () => context.push('/zikr'),
           ),
         ],
@@ -99,8 +99,7 @@ class _PillarTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isMinimal =
-        AppTheme.tokensOf(context).visualModel == UiVisualModel.editorialMinimal;
+    final tokens = AppTheme.tokensOf(context);
     return YitteSurfaceCard(
       onTap: onTap,
       padding: const EdgeInsets.all(16),
@@ -108,14 +107,12 @@ class _PillarTile extends StatelessWidget {
         children: [
           YitteIconBadge(
             icon: icon,
-            customIcon: customIcon != null && isMinimal
-                ? SanctuaryPrayerIcon(size: 28, color: color)
-                : customIcon,
+            customIcon: customIcon,
             color: color,
-            size: 54,
-            iconSize: 27,
+            size: 46,
+            iconSize: 22,
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -127,14 +124,10 @@ class _PillarTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.10),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.chevron_right_rounded, color: color, size: 20),
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 20,
+            color: tokens.goldAccent,
           ),
         ],
       ),

@@ -1,34 +1,47 @@
-import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// User-selectable structural & aesthetic UI Models (4 radically distinct looks).
+/// Global font family constants (bundled locally in mobile/assets/fonts/).
+class YitteFonts {
+  const YitteFonts._();
+
+  static const String display = 'PlayfairDisplay';
+  static const String ui = 'PlusJakartaSans';
+  static const String arabic = 'Amiri';
+  static const List<String> fallback = <String>[
+    'Amiri',
+    'Noto Sans',
+    'sans-serif',
+  ];
+}
+
+/// User-selectable structural UI Models (4 editorial architectures — strictly flat, elevation 0).
 enum UiVisualModel {
-  glassLuxe(
-    'glass_luxe',
-    'Aurora Glass',
-    'Verre dépoli lumineux, halos atmosphériques, dock flottant et icônes 3D',
-    26.0,
-    true,
-  ),
-  dynamicCommunity(
-    'dynamic_community',
-    'Néon Dynamique 3D',
-    'Cartes tactiles relief 3D, dégradés vibrants et badges colorés par pilier',
-    22.0,
-    true,
-  ),
   editorialMinimal(
     'editorial_minimal',
-    'Studio Apple Minimal',
-    'Contraste pur, lignes ultra-fines, typographie forte et calme visuel',
-    18.0,
+    'Éditorial Tranchant',
+    'Ivoire mat, filets 1px, typographie Playfair & icônes monochromes fines',
+    12.0,
     false,
   ),
   sanctuaryClassic(
     'sanctuary_classic',
-    'Palais Géométrique',
-    'Parchemin chaleureux, géométrie Khatam dorée et élégance calligraphique',
-    22.0,
+    'Classique Calligraphique',
+    'Proportions classiques, sérifs affirmés et bordures dorées mates',
+    10.0,
+    false,
+  ),
+  glassLuxe(
+    'glass_luxe',
+    'Atelier Structuré',
+    'Surfaces nettes, angles légèrement adoucis et contrastes maîtrisés',
+    14.0,
+    false,
+  ),
+  dynamicCommunity(
+    'dynamic_community',
+    'Revue Moderne',
+    'Cartes à bordure soulignée et hiérarchie typographique marquée',
+    12.0,
     false,
   );
 
@@ -49,188 +62,189 @@ enum UiVisualModel {
   static UiVisualModel fromCode(String? code) {
     return UiVisualModel.values.firstWhere(
       (m) => m.code == code,
-      orElse: () => UiVisualModel.glassLuxe,
+      orElse: () => UiVisualModel.editorialMinimal,
     );
   }
 }
 
-/// 8 radical, unmistakable visual worlds (Light & Deep Dark aware).
+/// 8 curated editorial palettes (Light & Dark aware) led by the strict
+/// signature 3-color Ivory / Charcoal + Emerald (#0B4635) & Matte Gold (#C5A059) system.
 enum SanctuaryPalette {
   emeraldGold(
     'emerald_gold',
-    'Émeraude Impériale',
-    'Aura émeraude vive, or liquide et verre cristallin',
-    Color(0xFF008564),
-    Color(0xFF033B2D),
-    Color(0xFF10B981),
-    Color(0xFFD1FAE5),
-    Color(0xFF063729),
-    Color(0xFFEEF7F4),
+    'Ivoire & Émeraude',
+    'Ivoire mat #F8F7F4, vert émeraude #0B4635 et or mat #C5A059',
+    Color(0xFF0B4635),
+    Color(0xFF072F23),
+    Color(0xFF2F8F70),
+    Color(0xFFEAF1EE),
+    Color(0xFF13241E),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFE0F1EB),
-    Color(0xFF050E0C),
-    Color(0xFF0C1A16),
-    Color(0xFF122620),
-    Color(0xFFE0A42A),
-    Color(0xFFF6CA5B),
-    Color(0xFFFEF3D6),
-    Color(0xFF2B210E),
-    Color(0xFF34D399),
-    Color(0xFFFBBF24),
+    Color(0xFFF1EFE9),
+    Color(0xFF0E1110),
+    Color(0xFF161B19),
+    Color(0xFF161B19),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF231F16),
+    Color(0xFF0B4635),
+    Color(0xFFC5A059),
   ),
   obsidianLuxe(
     'obsidian_luxe',
-    'Obsidienne 24K',
-    'Noir carbone haute couture, platine pur et or 24 carats',
-    Color(0xFF141824),
-    Color(0xFF05070C),
-    Color(0xFF3B4861),
-    Color(0xFFE5EAF2),
-    Color(0xFF1A202E),
-    Color(0xFFF2F4F8),
+    'Encre & Or Mat',
+    'Noir éditorial profond, papier ivoire et filets or mat',
+    Color(0xFF141816),
+    Color(0xFF0B0D0C),
+    Color(0xFFC5A059),
+    Color(0xFFECEAE4),
+    Color(0xFF1E2220),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFE6EAF0),
-    Color(0xFF04060A),
-    Color(0xFF0C1018),
-    Color(0xFF141B27),
-    Color(0xFFDFA934),
-    Color(0xFFF7D06B),
-    Color(0xFFFCF2D6),
-    Color(0xFF2B210E),
-    Color(0xFF64748B),
-    Color(0xFFF5C451),
+    Color(0xFFF0EEE8),
+    Color(0xFF0E1110),
+    Color(0xFF161B19),
+    Color(0xFF161B19),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF242016),
+    Color(0xFF141816),
+    Color(0xFFC5A059),
   ),
   medinaSapphire(
     'medina_sapphire',
-    'Saphir Céleste',
-    'Bleu cobalt électrique, lueur cyan et or stellaire',
-    Color(0xFF1D4ED8),
-    Color(0xFF0B1F5C),
-    Color(0xFF3B82F6),
-    Color(0xFFDBEAFE),
-    Color(0xFF112659),
-    Color(0xFFEFF5FF),
+    'Ardoise & Laiton',
+    'Bleu-nuit sobre, papier mat et accents laiton',
+    Color(0xFF1B365D),
+    Color(0xFF10223B),
+    Color(0xFF6B8FC5),
+    Color(0xFFEBF0F6),
+    Color(0xFF162233),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFDFEBFF),
-    Color(0xFF050B18),
-    Color(0xFF0C162D),
-    Color(0xFF132242),
-    Color(0xFF0EA5E9),
-    Color(0xFF38BDF8),
-    Color(0xFFE0F2FE),
-    Color(0xFF0D2A3F),
-    Color(0xFF60A5FA),
-    Color(0xFF38BDF8),
+    Color(0xFFF0EFEA),
+    Color(0xFF0E1114),
+    Color(0xFF161A20),
+    Color(0xFF161A20),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF242016),
+    Color(0xFF1B365D),
+    Color(0xFFC5A059),
   ),
   royalAmethyst(
     'royal_amethyst',
-    'Nébuleuse Violette',
-    'Violet néon futuriste, orchidée et reflets cosmiques',
-    Color(0xFF6D28D9),
-    Color(0xFF2E1065),
-    Color(0xFF8B5CF6),
-    Color(0xFFEDE9FE),
-    Color(0xFF261252),
-    Color(0xFFF4F0FF),
+    'Prune & Parchemin',
+    'Bordeaux-prune feutré, ivoire et or mat',
+    Color(0xFF4A2545),
+    Color(0xFF2E162B),
+    Color(0xFFA775A0),
+    Color(0xFFF3ECF2),
+    Color(0xFF231722),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFE7DFFE),
-    Color(0xFF090514),
-    Color(0xFF140D29),
-    Color(0xFF1F153D),
-    Color(0xFFEC4899),
-    Color(0xFFF472B6),
-    Color(0xFFFCE7F3),
-    Color(0xFF361229),
-    Color(0xFFA78BFA),
-    Color(0xFFF472B6),
+    Color(0xFFF1EFEA),
+    Color(0xFF100E11),
+    Color(0xFF1A161B),
+    Color(0xFF1A161B),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF242016),
+    Color(0xFF4A2545),
+    Color(0xFFC5A059),
   ),
   nordicSlate(
     'nordic_slate',
-    'Glacier & Corail',
-    'Contraste architectural épuré et énergie corail vif',
-    Color(0xFF0F172A),
-    Color(0xFF020617),
-    Color(0xFF334155),
-    Color(0xFFE2E8F0),
-    Color(0xFF1E293B),
-    Color(0xFFF3F6FA),
+    'Graphite Minimal',
+    'Gris graphite architectural, papier pur et laiton sobre',
+    Color(0xFF263238),
+    Color(0xFF151D21),
+    Color(0xFF8FA3AD),
+    Color(0xFFECEFF1),
+    Color(0xFF1B2226),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFE5ECF3),
-    Color(0xFF060A12),
-    Color(0xFF0F1726),
-    Color(0xFF182438),
-    Color(0xFFF43F5E),
-    Color(0xFFFB7185),
-    Color(0xFFFFE4E6),
-    Color(0xFF38131D),
-    Color(0xFF38BDF8),
-    Color(0xFFFB7185),
+    Color(0xFFF0EFEA),
+    Color(0xFF0E1110),
+    Color(0xFF161B19),
+    Color(0xFF161B19),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF242016),
+    Color(0xFF263238),
+    Color(0xFFC5A059),
   ),
   cayorAmber(
     'cayor_amber',
-    'Dunes & Or Sahel',
-    'Terracotta solaire, chaleur safranée et sable doré',
-    Color(0xFFC2410C),
-    Color(0xFF5C1A05),
-    Color(0xFFEA580C),
-    Color(0xFFFFEDD5),
-    Color(0xFF3B1508),
-    Color(0xFFFFF5EC),
+    'Terre & Sahel',
+    'Ocre brûlé sobre, papier ivoire et or sablé',
+    Color(0xFF7A3E1D),
+    Color(0xFF4D2611),
+    Color(0xFFC8835B),
+    Color(0xFFF6EEE9),
+    Color(0xFF241A15),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFFDE7D3),
-    Color(0xFF140905),
-    Color(0xFF231109),
-    Color(0xFF33190D),
-    Color(0xFFF59E0B),
-    Color(0xFFFBBF24),
-    Color(0xFFFEF3C7),
-    Color(0xFF332308),
-    Color(0xFFFB923C),
-    Color(0xFFFACC15),
+    Color(0xFFF2EFEA),
+    Color(0xFF110F0E),
+    Color(0xFF1B1716),
+    Color(0xFF1B1716),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF242016),
+    Color(0xFF7A3E1D),
+    Color(0xFFC5A059),
   ),
   toubaOasis(
     'touba_oasis',
-    'Lagon & Menthe',
-    'Turquoise cristallin, fraîcheur aquatique et ambre doux',
-    Color(0xFF0D9488),
-    Color(0xFF044441),
-    Color(0xFF14B8A6),
-    Color(0xFFCCFBF1),
-    Color(0xFF0B3533),
-    Color(0xFFECFDF9),
+    'Cèdre & Ivoire',
+    'Vert cèdre profond, lin naturel et filets or mat',
+    Color(0xFF145249),
+    Color(0xFF0B322C),
+    Color(0xFF4BA194),
+    Color(0xFFEAF3F1),
+    Color(0xFF132220),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFD5F5EE),
-    Color(0xFF041010),
-    Color(0xFF0A1E1E),
-    Color(0xFF102D2D),
-    Color(0xFF06B6D4),
-    Color(0xFF22D3EE),
-    Color(0xFFCFFAFE),
-    Color(0xFF0B2F38),
-    Color(0xFF2DD4BF),
-    Color(0xFF38BDF8),
+    Color(0xFFF0EFEA),
+    Color(0xFF0E1110),
+    Color(0xFF161B19),
+    Color(0xFF161B19),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF242016),
+    Color(0xFF145249),
+    Color(0xFFC5A059),
   ),
   sunsetCoral(
     'sunset_coral',
-    'Aurore Dakar',
-    'Rubis-framboise vibrant, mangue solaire et lumière chaude',
-    Color(0xFFBE123C),
-    Color(0xFF5B081F),
-    Color(0xFFE11D48),
-    Color(0xFFFFE4E6),
-    Color(0xFF3B0B19),
-    Color(0xFFFFF1F4),
+    'Bordeaux & Or',
+    'Bordeaux littéraire, ivoire mat et or discret',
+    Color(0xFF6B2230),
+    Color(0xFF42141D),
+    Color(0xFFC46D7D),
+    Color(0xFFF6ECEE),
+    Color(0xFF231619),
+    Color(0xFFF8F7F4),
     Color(0xFFFFFFFF),
-    Color(0xFFFCE0E6),
-    Color(0xFF14050A),
-    Color(0xFF240B13),
-    Color(0xFF36111D),
-    Color(0xFFF97316),
-    Color(0xFFFB923C),
-    Color(0xFFFFEDD5),
-    Color(0xFF361B0A),
-    Color(0xFFFB7185),
-    Color(0xFFFB923C),
+    Color(0xFFF1EFEA),
+    Color(0xFF110E0F),
+    Color(0xFF1B1617),
+    Color(0xFF1B1617),
+    Color(0xFFC5A059),
+    Color(0xFFC5A059),
+    Color(0xFFF7F2E6),
+    Color(0xFF242016),
+    Color(0xFF6B2230),
+    Color(0xFFC5A059),
   );
 
   const SanctuaryPalette(
@@ -285,53 +299,58 @@ enum SanctuaryPalette {
   }
 }
 
-/// Distinct semantic pillar accents with vibrant jewel-tone gradients.
+/// Strict monochrome editorial accents — ONLY Emerald (#0B4635) and Matte Gold (#C5A059).
+/// Zero multicolor rainbow badges.
 class YitteDomainAccents {
   const YitteDomainAccents._();
 
-  static const Color spirituality = Color(0xFF059669);
-  static const Color knowledge = Color(0xFF2563EB);
-  static const Color challenges = Color(0xFFD97706);
-  static const Color debates = Color(0xFF0891B2);
-  static const Color english = Color(0xFF4F46E5);
-  static const Color career = Color(0xFF0284C7);
-  static const Color growth = Color(0xFF7C3AED);
-  static const Color community = Color(0xFFE11D48);
+  static const Color spirituality = YitteColors.emerald;
+  static const Color knowledge = YitteColors.emerald;
+  static const Color challenges = YitteColors.gold;
+  static const Color debates = YitteColors.emerald;
+  static const Color english = YitteColors.emerald;
+  static const Color career = YitteColors.emerald;
+  static const Color growth = YitteColors.gold;
+  static const Color community = YitteColors.emerald;
 }
 
-/// Signature Architectural Sanctuary Palette (compat constants preserved):
+/// Strict 3-color editorial palette tokens:
+/// Light: Canvas #F8F7F4, Surface #FFFFFF, Border #E5E2DA, Ink #141816
+/// Dark:  Canvas #0E1110, Surface #161B19, Border #262E2B, Ink #F2F0EA
+/// Accents ONLY: Emerald #0B4635 & Matte Gold #C5A059.
 class YitteColors {
   const YitteColors._();
 
-  static const Color emerald = Color(0xFF0A4B3C);
-  static const Color emeraldDeep = Color(0xFF062E24);
-  static const Color emeraldLight = Color(0xFF217A63);
-  static const Color emeraldSoft = Color(0xFFE3EFEA);
-  static const Color emeraldDarkSurface = Color(0xFF102A23);
+  static const Color emerald = Color(0xFF0B4635);
+  static const Color emeraldDeep = Color(0xFF072F23);
+  static const Color emeraldLight = Color(0xFF2F8F70);
+  static const Color emeraldSoft = Color(0xFFEAF1EE);
+  static const Color emeraldDarkSurface = Color(0xFF13241E);
 
-  static const Color ivory = Color(0xFFF6F2E9);
-  static const Color ivoryElevated = Color(0xFFFFFCF5);
-  static const Color stoneBorder = Color(0xFFE4DEC9);
-  static const Color stoneMuted = Color(0xFFEBE5D6);
+  static const Color ivory = Color(0xFFF8F7F4);
+  static const Color ivoryElevated = Color(0xFFFFFFFF);
+  static const Color stoneBorder = Color(0xFFE5E2DA);
+  static const Color stoneMuted = Color(0xFFF1EFE9);
   static const Color cardLight = Color(0xFFFFFFFF);
 
-  static const Color charcoal = Color(0xFF0D1412);
-  static const Color cardDark = Color(0xFF15201D);
-  static const Color cardDarkElevated = Color(0xFF1B2925);
+  static const Color charcoal = Color(0xFF0E1110);
+  static const Color cardDark = Color(0xFF161B19);
+  static const Color cardDarkElevated = Color(0xFF161B19);
+  static const Color borderDark = Color(0xFF262E2B);
 
-  static const Color gold = Color(0xFFB88B32);
-  static const Color goldBright = Color(0xFFDFB864);
-  static const Color goldSoft = Color(0xFFF6ECD4);
-  static const Color goldDarkSurface = Color(0xFF2B2313);
+  static const Color gold = Color(0xFFC5A059);
+  static const Color goldBright = Color(0xFFC5A059);
+  static const Color goldSoft = Color(0xFFF7F2E6);
+  static const Color goldDarkSurface = Color(0xFF231F16);
 
-  static const Color inkDark = Color(0xFF0F172A);
-  static const Color inkMuted = Color(0xFF475569);
-  static const Color inkLight = Color(0xFFF8FAFC);
-  static const Color inkLightMuted = Color(0xFF94A3B8);
+  static const Color inkDark = Color(0xFF141816);
+  static const Color inkMuted = Color(0xFF5A625D);
+  static const Color inkLight = Color(0xFFF2F0EA);
+  static const Color inkLightMuted = Color(0xFF9BA39E);
 
-  static const Color danger = Color(0xFFDC2626);
-  static const Color success = Color(0xFF059669);
-  static const Color warning = Color(0xFFD97706);
+  static const Color danger = Color(0xFF9E2A2B);
+  static const Color success = Color(0xFF0B4635);
+  static const Color warning = Color(0xFFC5A059);
 }
 
 @immutable
@@ -364,36 +383,26 @@ class YitteSurfaceTokens extends ThemeExtension<YitteSurfaceTokens> {
     required this.heroEnd,
     required this.meshOrbA,
     required this.meshOrbB,
-    this.visualModel = UiVisualModel.glassLuxe,
-    this.cardRadius = 26.0,
+    this.visualModel = UiVisualModel.editorialMinimal,
+    this.cardRadius = 12.0,
   });
 
   factory YitteSurfaceTokens.forPalette(
     SanctuaryPalette p, {
     required bool isDark,
-    UiVisualModel model = UiVisualModel.glassLuxe,
+    UiVisualModel model = UiVisualModel.editorialMinimal,
   }) {
     final radius = model.cardRadius;
     if (isDark) {
-      final canvas = switch (model) {
-        UiVisualModel.editorialMinimal => const Color(0xFF090B0F),
-        UiVisualModel.glassLuxe => p.canvasDark,
-        UiVisualModel.dynamicCommunity => p.canvasDark,
-        UiVisualModel.sanctuaryClassic => Color.lerp(p.canvasDark, const Color(0xFF0D1412), 0.35)!,
-      };
       return YitteSurfaceTokens(
-        canvas: canvas,
-        elevated: model == UiVisualModel.glassLuxe
-            ? Color.lerp(p.elevatedDark, Colors.white, 0.05) ?? p.elevatedDark
-            : p.elevatedDark,
+        canvas: p.canvasDark,
+        elevated: p.surfaceDark,
         subtleFill: p.primaryDarkSurface,
-        borderSubtle: model == UiVisualModel.editorialMinimal
-            ? Colors.white.withValues(alpha: 0.12)
-            : p.meshOrbA.withValues(alpha: 0.22),
-        borderAccent: p.accentBright.withValues(alpha: 0.48),
-        goldAccent: p.accentBright,
+        borderSubtle: YitteColors.borderDark,
+        borderAccent: p.accent.withValues(alpha: 0.45),
+        goldAccent: p.accent,
         goldSurface: p.accentDarkSurface,
-        shadowTint: Colors.black.withValues(alpha: 0.45),
+        shadowTint: Colors.transparent,
         heroStart: p.primary,
         heroEnd: p.primaryDeep,
         meshOrbA: p.meshOrbA,
@@ -403,30 +412,15 @@ class YitteSurfaceTokens extends ThemeExtension<YitteSurfaceTokens> {
       );
     }
 
-    final lightCanvas = switch (model) {
-      UiVisualModel.editorialMinimal => const Color(0xFFFAFAFC),
-      UiVisualModel.glassLuxe => p.canvasLight,
-      UiVisualModel.dynamicCommunity =>
-        Color.lerp(p.canvasLight, p.primarySoft, 0.38) ?? p.canvasLight,
-      UiVisualModel.sanctuaryClassic => const Color(0xFFF6F2E9),
-    };
-    final lightElevated = model == UiVisualModel.sanctuaryClassic
-        ? const Color(0xFFFFFCF5)
-        : Colors.white;
-
     return YitteSurfaceTokens(
-      canvas: lightCanvas,
-      elevated: lightElevated,
+      canvas: p.canvasLight,
+      elevated: p.elevatedLight,
       subtleFill: p.subtleFillLight,
-      borderSubtle: model == UiVisualModel.editorialMinimal
-          ? const Color(0xFFE2E8F0)
-          : p.primary.withValues(alpha: 0.14),
-      borderAccent: p.accent.withValues(alpha: 0.42),
+      borderSubtle: YitteColors.stoneBorder,
+      borderAccent: p.accent.withValues(alpha: 0.48),
       goldAccent: p.accent,
       goldSurface: p.accentSoft,
-      shadowTint: model == UiVisualModel.editorialMinimal
-          ? const Color(0x0D0F172A)
-          : p.primary.withValues(alpha: 0.12),
+      shadowTint: Colors.transparent,
       heroStart: p.primary,
       heroEnd: p.primaryDeep,
       meshOrbA: p.meshOrbA,
@@ -437,37 +431,37 @@ class YitteSurfaceTokens extends ThemeExtension<YitteSurfaceTokens> {
   }
 
   static const lightTokens = YitteSurfaceTokens(
-    canvas: Color(0xFFEEF7F4),
-    elevated: Colors.white,
-    subtleFill: Color(0xFFE0F1EB),
-    borderSubtle: Color(0x22008564),
-    borderAccent: Color(0x66E0A42A),
-    goldAccent: Color(0xFFE0A42A),
-    goldSurface: Color(0xFFFEF3D6),
-    shadowTint: Color(0x1E008564),
-    heroStart: Color(0xFF008564),
-    heroEnd: Color(0xFF033B2D),
-    meshOrbA: Color(0xFF34D399),
-    meshOrbB: Color(0xFFFBBF24),
-    visualModel: UiVisualModel.glassLuxe,
-    cardRadius: 26.0,
+    canvas: YitteColors.ivory,
+    elevated: YitteColors.cardLight,
+    subtleFill: YitteColors.stoneMuted,
+    borderSubtle: YitteColors.stoneBorder,
+    borderAccent: Color(0x7AC5A059),
+    goldAccent: YitteColors.gold,
+    goldSurface: YitteColors.goldSoft,
+    shadowTint: Colors.transparent,
+    heroStart: YitteColors.emerald,
+    heroEnd: YitteColors.emeraldDeep,
+    meshOrbA: YitteColors.emerald,
+    meshOrbB: YitteColors.gold,
+    visualModel: UiVisualModel.editorialMinimal,
+    cardRadius: 12.0,
   );
 
   static const darkTokens = YitteSurfaceTokens(
-    canvas: Color(0xFF050E0C),
-    elevated: Color(0xFF122620),
-    subtleFill: Color(0xFF063729),
-    borderSubtle: Color(0x3334D399),
-    borderAccent: Color(0x66F6CA5B),
-    goldAccent: Color(0xFFF6CA5B),
-    goldSurface: Color(0xFF2B210E),
-    shadowTint: Color(0x73000000),
-    heroStart: Color(0xFF008564),
-    heroEnd: Color(0xFF033B2D),
-    meshOrbA: Color(0xFF34D399),
-    meshOrbB: Color(0xFFFBBF24),
-    visualModel: UiVisualModel.glassLuxe,
-    cardRadius: 26.0,
+    canvas: YitteColors.charcoal,
+    elevated: YitteColors.cardDark,
+    subtleFill: YitteColors.emeraldDarkSurface,
+    borderSubtle: YitteColors.borderDark,
+    borderAccent: Color(0x73C5A059),
+    goldAccent: YitteColors.gold,
+    goldSurface: YitteColors.goldDarkSurface,
+    shadowTint: Colors.transparent,
+    heroStart: YitteColors.emerald,
+    heroEnd: YitteColors.emeraldDeep,
+    meshOrbA: YitteColors.emerald,
+    meshOrbB: YitteColors.gold,
+    visualModel: UiVisualModel.editorialMinimal,
+    cardRadius: 12.0,
   );
 
   @override
@@ -537,81 +531,106 @@ class AppTheme {
             : YitteSurfaceTokens.lightTokens);
   }
 
-  static TextTheme _buildTextTheme(
-    Color primary,
-    Color muted,
-    UiVisualModel model,
-  ) {
-    final sansFamily = GoogleFonts.plusJakartaSans().fontFamily;
-    final serifFamily = GoogleFonts.playfairDisplay().fontFamily;
-    final displayFamily =
-        (model == UiVisualModel.sanctuaryClassic) ? serifFamily : sansFamily;
-
+  static TextTheme _buildTextTheme(Color primary, Color muted) {
     return TextTheme(
       displaySmall: TextStyle(
-        fontFamily: displayFamily,
+        fontFamily: YitteFonts.display,
+        fontFamilyFallback: YitteFonts.fallback,
         fontSize: 30,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -0.8,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.5,
         color: primary,
-        height: 1.12,
+        height: 1.16,
       ),
       headlineLarge: TextStyle(
-        fontFamily: displayFamily,
+        fontFamily: YitteFonts.display,
+        fontFamilyFallback: YitteFonts.fallback,
         fontSize: 26,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -0.6,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.4,
         color: primary,
-        height: 1.15,
+        height: 1.18,
       ),
       headlineMedium: TextStyle(
-        fontFamily: displayFamily,
-        fontSize: 21,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -0.35,
-        color: primary,
-        height: 1.22,
-      ),
-      titleLarge: TextStyle(
-        fontFamily: sansFamily,
-        fontSize: 18,
+        fontFamily: YitteFonts.display,
+        fontFamilyFallback: YitteFonts.fallback,
+        fontSize: 22,
         fontWeight: FontWeight.w700,
         letterSpacing: -0.25,
         color: primary,
-        height: 1.26,
+        height: 1.24,
       ),
-      titleMedium: TextStyle(
-        fontFamily: sansFamily,
-        fontSize: 15.5,
-        fontWeight: FontWeight.w700,
+      titleLarge: TextStyle(
+        fontFamily: YitteFonts.display,
+        fontFamilyFallback: YitteFonts.fallback,
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
         letterSpacing: -0.15,
         color: primary,
-        height: 1.3,
+        height: 1.28,
+      ),
+      titleMedium: TextStyle(
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.1,
+        color: primary,
+        height: 1.32,
+      ),
+      titleSmall: TextStyle(
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
+        fontSize: 13.5,
+        fontWeight: FontWeight.w600,
+        color: primary,
+        height: 1.35,
       ),
       bodyLarge: TextStyle(
-        fontFamily: sansFamily,
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
         fontSize: 14.5,
         fontWeight: FontWeight.w400,
         color: primary,
-        height: 1.54,
+        height: 1.56,
       ),
       bodyMedium: TextStyle(
-        fontFamily: sansFamily,
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
         fontSize: 13,
+        fontWeight: FontWeight.w400,
         color: muted,
-        height: 1.46,
+        height: 1.48,
+      ),
+      bodySmall: TextStyle(
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+        color: muted,
+        height: 1.44,
       ),
       labelLarge: TextStyle(
-        fontFamily: sansFamily,
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
         fontSize: 13.5,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w600,
         color: primary,
       ),
       labelMedium: TextStyle(
-        fontFamily: sansFamily,
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
         fontSize: 11.5,
         fontWeight: FontWeight.w600,
-        letterSpacing: 0.2,
+        letterSpacing: 0.3,
+        color: muted,
+      ),
+      labelSmall: TextStyle(
+        fontFamily: YitteFonts.ui,
+        fontFamilyFallback: YitteFonts.fallback,
+        fontSize: 10.5,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.4,
         color: muted,
       ),
     );
@@ -619,7 +638,7 @@ class AppTheme {
 
   static ThemeData light([
     SanctuaryPalette palette = SanctuaryPalette.emeraldGold,
-    UiVisualModel model = UiVisualModel.glassLuxe,
+    UiVisualModel model = UiVisualModel.editorialMinimal,
   ]) {
     final tokens = YitteSurfaceTokens.forPalette(
       palette,
@@ -638,51 +657,64 @@ class AppTheme {
       onSecondaryContainer: YitteColors.inkDark,
       surface: tokens.elevated,
       onSurface: YitteColors.inkDark,
+      outline: tokens.borderSubtle,
       error: YitteColors.danger,
       onError: Colors.white,
     );
-    final appBarFont = (model == UiVisualModel.sanctuaryClassic)
-        ? GoogleFonts.playfairDisplay().fontFamily
-        : GoogleFonts.plusJakartaSans().fontFamily;
 
     return ThemeData(
       useMaterial3: true,
+      fontFamily: YitteFonts.ui,
+      fontFamilyFallback: YitteFonts.fallback,
       colorScheme: scheme,
       scaffoldBackgroundColor: tokens.canvas,
+      shadowColor: Colors.transparent,
       extensions: [tokens],
-      textTheme: _buildTextTheme(YitteColors.inkDark, YitteColors.inkMuted, model),
+      textTheme: _buildTextTheme(YitteColors.inkDark, YitteColors.inkMuted),
       appBarTheme: AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: tokens.canvas,
         surfaceTintColor: Colors.transparent,
         foregroundColor: YitteColors.inkDark,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
-          fontFamily: appBarFont,
-          fontSize: 19,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.4,
+        titleTextStyle: const TextStyle(
+          fontFamily: YitteFonts.display,
+          fontFamilyFallback: YitteFonts.fallback,
+          fontSize: 18.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.2,
           color: YitteColors.inkDark,
         ),
+        shape: Border(bottom: BorderSide(color: tokens.borderSubtle, width: 1)),
       ),
       cardTheme: CardThemeData(
         color: tokens.elevated,
         surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(tokens.cardRadius),
-          side: BorderSide(color: tokens.borderSubtle),
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: tokens.elevated,
         selectedColor: palette.primarySoft,
-        side: BorderSide(color: tokens.borderSubtle),
+        side: BorderSide(color: tokens.borderSubtle, width: 1),
+        elevation: 0,
+        pressElevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
+        labelStyle: const TextStyle(
+          fontFamily: YitteFonts.ui,
+          fontFamilyFallback: YitteFonts.fallback,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: YitteColors.inkDark,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       dividerTheme: DividerThemeData(
         color: tokens.borderSubtle,
@@ -694,66 +726,115 @@ class AppTheme {
           backgroundColor: palette.primary,
           foregroundColor: Colors.white,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          textStyle: TextStyle(
-            fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
-            fontWeight: FontWeight.w700,
+          shadowColor: Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          textStyle: const TextStyle(
+            fontFamily: YitteFonts.ui,
+            fontFamilyFallback: YitteFonts.fallback,
+            fontWeight: FontWeight.w600,
             fontSize: 13.5,
           ),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(10),
           ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: palette.primary,
-          side: BorderSide(color: palette.primary.withValues(alpha: 0.35), width: 1.2),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
+          backgroundColor: tokens.elevated,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          textStyle: const TextStyle(
+            fontFamily: YitteFonts.ui,
+            fontFamilyFallback: YitteFonts.fallback,
+            fontWeight: FontWeight.w600,
+            fontSize: 13.5,
+          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: palette.primary,
+          textStyle: const TextStyle(
+            fontFamily: YitteFonts.ui,
+            fontFamilyFallback: YitteFonts.fallback,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          elevation: const WidgetStatePropertyAll(0),
+          side: WidgetStatePropertyAll(
+            BorderSide(color: tokens.borderSubtle, width: 1),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.92),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        fillColor: tokens.elevated,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: tokens.borderSubtle),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: tokens.borderSubtle),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: palette.primary, width: 1.8),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: palette.primary, width: 1.4),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: tokens.elevated,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
+        ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: tokens.elevated,
         surfaceTintColor: Colors.transparent,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: tokens.elevated,
         surfaceTintColor: Colors.transparent,
-        height: 66,
+        elevation: 0,
+        height: 64,
         indicatorColor: palette.primarySoft,
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        elevation: 0,
+        focusElevation: 0,
+        hoverElevation: 0,
+        highlightElevation: 0,
+        backgroundColor: palette.primary,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
 
   static ThemeData dark([
     SanctuaryPalette palette = SanctuaryPalette.emeraldGold,
-    UiVisualModel model = UiVisualModel.glassLuxe,
+    UiVisualModel model = UiVisualModel.editorialMinimal,
   ]) {
     final tokens = YitteSurfaceTokens.forPalette(
       palette,
@@ -772,120 +853,183 @@ class AppTheme {
       onSecondaryContainer: palette.accentSoft,
       surface: tokens.elevated,
       onSurface: YitteColors.inkLight,
-      error: const Color(0xFFFCA5A5),
-      onError: const Color(0xFF450A0A),
+      outline: tokens.borderSubtle,
+      error: const Color(0xFFE07A7A),
+      onError: const Color(0xFF2B0E0E),
     );
-    final appBarFont = (model == UiVisualModel.sanctuaryClassic)
-        ? GoogleFonts.playfairDisplay().fontFamily
-        : GoogleFonts.plusJakartaSans().fontFamily;
 
     return ThemeData(
       useMaterial3: true,
+      fontFamily: YitteFonts.ui,
+      fontFamilyFallback: YitteFonts.fallback,
       colorScheme: scheme,
       scaffoldBackgroundColor: tokens.canvas,
+      shadowColor: Colors.transparent,
       extensions: [tokens],
-      textTheme: _buildTextTheme(YitteColors.inkLight, YitteColors.inkLightMuted, model),
+      textTheme: _buildTextTheme(YitteColors.inkLight, YitteColors.inkLightMuted),
       appBarTheme: AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: tokens.canvas,
         surfaceTintColor: Colors.transparent,
         foregroundColor: YitteColors.inkLight,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
-          fontFamily: appBarFont,
-          fontSize: 19,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.4,
+        titleTextStyle: const TextStyle(
+          fontFamily: YitteFonts.display,
+          fontFamilyFallback: YitteFonts.fallback,
+          fontSize: 18.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.2,
           color: YitteColors.inkLight,
         ),
+        shape: Border(bottom: BorderSide(color: tokens.borderSubtle, width: 1)),
       ),
       cardTheme: CardThemeData(
         color: tokens.elevated,
         surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(tokens.cardRadius),
-          side: BorderSide(color: tokens.borderSubtle),
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: tokens.elevated,
         selectedColor: palette.primaryDarkSurface,
-        side: BorderSide(color: tokens.borderSubtle),
+        side: BorderSide(color: tokens.borderSubtle, width: 1),
+        elevation: 0,
+        pressElevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
+        labelStyle: const TextStyle(
+          fontFamily: YitteFonts.ui,
+          fontFamilyFallback: YitteFonts.fallback,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: YitteColors.inkLight,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       dividerTheme: DividerThemeData(
-        color: Colors.white.withValues(alpha: 0.08),
+        color: tokens.borderSubtle,
         thickness: 1,
         space: 20,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: palette.primaryLight,
-          foregroundColor: Colors.white,
+          backgroundColor: palette.primary,
+          foregroundColor: YitteColors.inkLight,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          textStyle: TextStyle(
-            fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
-            fontWeight: FontWeight.w700,
+          shadowColor: Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          textStyle: const TextStyle(
+            fontFamily: YitteFonts.ui,
+            fontFamilyFallback: YitteFonts.fallback,
+            fontWeight: FontWeight.w600,
             fontSize: 13.5,
           ),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: palette.accentBright,
-          side: BorderSide(color: palette.accentBright.withValues(alpha: 0.45), width: 1.2),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
+          backgroundColor: tokens.elevated,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          textStyle: const TextStyle(
+            fontFamily: YitteFonts.ui,
+            fontFamilyFallback: YitteFonts.fallback,
+            fontWeight: FontWeight.w600,
+            fontSize: 13.5,
+          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: palette.accentBright,
+          textStyle: const TextStyle(
+            fontFamily: YitteFonts.ui,
+            fontFamilyFallback: YitteFonts.fallback,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          elevation: const WidgetStatePropertyAll(0),
+          side: WidgetStatePropertyAll(
+            BorderSide(color: tokens.borderSubtle, width: 1),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: tokens.elevated.withValues(alpha: 0.9),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        fillColor: tokens.elevated,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: tokens.borderSubtle),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: palette.accentBright, width: 1.8),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: palette.accentBright, width: 1.4),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: tokens.elevated,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
+        ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: tokens.elevated,
         surfaceTintColor: Colors.transparent,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          side: BorderSide(color: tokens.borderSubtle, width: 1),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: tokens.elevated,
         surfaceTintColor: Colors.transparent,
-        height: 66,
+        elevation: 0,
+        height: 64,
         indicatorColor: palette.primaryDarkSurface,
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        elevation: 0,
+        focusElevation: 0,
+        hoverElevation: 0,
+        highlightElevation: 0,
+        backgroundColor: palette.primary,
+        foregroundColor: YitteColors.inkLight,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
 
   static TextStyle arabicStyle({required Color color, double fontSize = 22}) {
     return TextStyle(
-      fontFamily: GoogleFonts.amiri().fontFamily,
+      fontFamily: YitteFonts.arabic,
+      fontFamilyFallback: YitteFonts.fallback,
       fontSize: fontSize,
       height: 1.85,
       fontWeight: FontWeight.w700,
