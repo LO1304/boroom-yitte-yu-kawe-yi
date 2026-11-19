@@ -493,9 +493,11 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
               .toList()
           : state.deletedReflectionIds;
       final loadedReflections = snap['reflections'] is List
-          ? (snap['reflections'] as List)
-              .map((e) => ReflectionPost.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
+          ? (snap['reflections'] as List).map((e) {
+              final map = Map<String, dynamic>.from(e);
+              map['moderation_note'] = null;
+              return ReflectionPost.fromJson(map);
+            }).toList()
           : state.reflections;
       final mergedReflections = _mergeHistoricalArchives(
         loadedReflections,
@@ -507,12 +509,18 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
               .map((e) => ExtraGroupeMeetingModel.fromJson(Map<String, dynamic>.from(e)))
               .toList()
           : state.extraGroupeMeetings;
+      final loadedWeekly = snap['weekly_topic'] is Map
+          ? WeeklyTopicModel.fromJson(
+              Map<String, dynamic>.from(snap['weekly_topic']))
+          : null;
+      final effectiveWeekly = (loadedWeekly == null ||
+              (loadedWeekly.id == 'wt-46' &&
+                  loadedWeekly.title.startsWith('Comment concilier ambition')))
+          ? state.weeklyTopic
+          : loadedWeekly;
       state = state.copyWith(
         reflections: mergedReflections,
-        weeklyTopic: snap['weekly_topic'] is Map
-            ? WeeklyTopicModel.fromJson(
-                Map<String, dynamic>.from(snap['weekly_topic']))
-            : state.weeklyTopic,
+        weeklyTopic: effectiveWeekly,
         challenges: snap['challenges'] is List
             ? _mergeChallenges(
                 (snap['challenges'] as List)
@@ -846,6 +854,29 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
         .toList();
     state = state.copyWith(reflections: updated);
     BackendRepository.instance.cacheReflections(updated);
+    _persistSnapshot();
+  }
+
+  void setWeeklyTopic({
+    required String title,
+    required String introduction,
+    List<String> guidingQuestions = const [],
+  }) {
+    final t = state.weeklyTopic;
+    state = state.copyWith(
+      weeklyTopic: WeeklyTopicModel(
+        id: 'wt-${DateTime.now().millisecondsSinceEpoch}',
+        weekNumber: t.weekNumber,
+        year: t.year,
+        title: title,
+        introduction: introduction,
+        guidingQuestions: guidingQuestions.isNotEmpty
+            ? guidingQuestions
+            : t.guidingQuestions,
+        contributions: const [],
+        summary: null,
+      ),
+    );
     _persistSnapshot();
   }
 
@@ -2028,8 +2059,6 @@ EcosystemState _buildInitialState() {
         isFeaturedInLibrary: true,
         isHistoricalArchive: true,
         discussionDateLabel: 'Archive communautaire',
-        moderationNote:
-            'Cadre éditorial : examiner les représentations sociales, la responsabilité individuelle et collective et l’éducation, sans stigmatiser aucune communauté religieuse ni présenter des perceptions comme des statistiques.',
         mainQuestions: const [
           'Sommes-nous face à une défaillance de l’éducation, à un manque de communication, à une crise des valeurs ou aux conséquences d’une société qui ne sait plus transmettre ses repères ?',
           'Avons-nous collectivement échoué à faire de l’éducation morale et du sens des responsabilités des priorités ?',
@@ -2082,8 +2111,6 @@ EcosystemState _buildInitialState() {
         isFeaturedInLibrary: true,
         isHistoricalArchive: true,
         discussionDateLabel: 'Archive communautaire',
-        moderationNote:
-            'Sujet sensible — modération renforcée : ne jamais culpabiliser les victimes ; ne pas présenter des opinions comme des vérités juridiques ou médicales ; garantir un cadre respectueux.',
         mainQuestions: const [
           'Qu’est-ce que le consentement et est-ce que le silence signifie oui ?',
           'Comment mieux protéger les filles et les garçons et que transmettre dès le jeune âge ?',
@@ -2092,17 +2119,16 @@ EcosystemState _buildInitialState() {
       ),
     ],
     weeklyTopic: const WeeklyTopicModel(
-      id: 'wt-46',
+      id: 'wt-communaute-1',
       weekNumber: 46,
       year: 2026,
-      title:
-          'Comment concilier ambition professionnelle, excellence scientifique et vie spirituelle équilibrée ?',
+      title: "Une majorité en nombre, mais qu'en est-il des valeurs ?",
       introduction:
-          "Sujet hebdomadaire ouvert à vos contributions écrites et argumentées.",
+          "Proposé par Sokhna Diarra — Comment expliquer le décalage entre les valeurs professées et les comportements observés, et comment restaurer la transmission de nos repères ?",
       guidingQuestions: [
-        'Quelles habitudes protègent la concentration profonde au quotidien ?',
-        'Comment transformer une compétence technique en utilité sociale ?',
-        'Quel rôle joue l’entraide communautaire dans la persévérance ?',
+        "Sommes-nous face à une défaillance de l'éducation, à un manque de communication ou à une crise des valeurs ?",
+        "Nos parents ont-ils failli dans la transmission des bonnes manières et des principes fondamentaux à leurs enfants ?",
+        "Avons-nous collectivement échoué à faire de l'éducation morale et du sens des responsabilités des priorités ?",
       ],
       contributions: [],
     ),

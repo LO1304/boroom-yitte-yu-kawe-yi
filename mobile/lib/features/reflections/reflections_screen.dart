@@ -6,6 +6,7 @@ import '../../app/state/app_providers.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/models/domain_models.dart';
 import '../../core/services/external_link_bridge.dart';
+import '../../core/services/file_picker_bridge.dart';
 import '../../core/services/pdf_export_service.dart';
 import '../../core/services/whatsapp_bridge_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -341,26 +342,6 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                         .toList(),
                   ),
                 ],
-                if (p.moderationNote != null) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppTheme.tokensOf(context).goldSurface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: AppTheme.tokensOf(context).borderAccent),
-                    ),
-                    child: Text(
-                      p.moderationNote!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
                 if (p.attachmentName != null) ...[
                   const SizedBox(height: 8),
                   Chip(
@@ -655,18 +636,40 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
     final questionsCtrl = TextEditingController();
     final axesCtrl = TextEditingController();
     final docCtrl = TextEditingController();
-    String category = 'philosophy';
-    bool submitForApproval = false;
+    String category = 'society';
+    bool setAsWeeklyDebate = false;
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) => AlertDialog(
-          title: const Text('Publier / Proposer un Sujet'),
+          title: const Text('Publier / Importer un Sujet'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.upload_file_outlined, size: 18),
+                  label: const Text('Importer un sujet depuis un fichier (.txt, .md...)'),
+                  onPressed: () async {
+                    final picked = await FilePickerBridge.pickDocumentFile();
+                    if (picked == null) return;
+                    setModalState(() {
+                      if (titleCtrl.text.trim().isEmpty) {
+                        titleCtrl.text = picked.fileName
+                            .replaceAll(RegExp(r'\.[^.]+$'), '')
+                            .replaceAll('_', ' ');
+                      }
+                      if (picked.extractedText != null &&
+                          picked.extractedText!.trim().isNotEmpty) {
+                        bodyCtrl.text = picked.extractedText!.trim();
+                      }
+                      docCtrl.text = picked.fileName;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
                 TextField(
                   controller: titleCtrl,
                   decoration: const InputDecoration(labelText: 'Titre du sujet *'),
@@ -727,11 +730,11 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  value: submitForApproval,
+                  value: setAsWeeklyDebate,
                   onChanged: (v) =>
-                      setModalState(() => submitForApproval = v),
+                      setModalState(() => setAsWeeklyDebate = v),
                   title: const Text(
-                    'Soumettre à validation administrative',
+                    'Afficher en « Débat de la semaine » (Accueil)',
                     style: TextStyle(fontSize: 13),
                   ),
                 ),
@@ -775,9 +778,15 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                           : [docCtrl.text.trim()],
                       attachmentName:
                           docCtrl.text.trim().isEmpty ? null : docCtrl.text.trim(),
-                      validationStatus:
-                          submitForApproval ? 'pending' : 'approved',
+                      validationStatus: 'approved',
                     );
+                if (setAsWeeklyDebate) {
+                  ref.read(ecosystemProvider.notifier).setWeeklyTopic(
+                        title: titleCtrl.text.trim(),
+                        introduction: bodyCtrl.text.trim(),
+                        guidingQuestions: qList,
+                      );
+                }
                 Navigator.pop(ctx);
               },
               child: const Text('Publier'),
