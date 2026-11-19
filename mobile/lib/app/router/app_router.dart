@@ -278,6 +278,17 @@ class _MainScaffoldShell extends ConsumerWidget {
       (icon: Icons.groups_outlined, active: Icons.groups_rounded, label: s.t('nav_community')),
     ];
 
+    const quickSpaces = [
+      (icon: Icons.mosque_outlined, label: 'Yitté Zikr', route: '/zikr'),
+      (icon: Icons.translate_rounded, label: 'English Club', route: '/english-club'),
+      (icon: Icons.folder_copy_outlined, label: 'Bibliothèque Docs', route: '/documents'),
+      (icon: Icons.event_outlined, label: 'Extra Groupe', route: '/extra-groupe'),
+      (icon: Icons.record_voice_over_outlined, label: 'Face-à-Face', route: '/debates'),
+      (icon: Icons.emoji_events_outlined, label: 'Quiz Arena', route: '/quiz-arena'),
+      (icon: Icons.work_outline_rounded, label: 'Professionnel', route: '/professional'),
+      (icon: Icons.lock_outline_rounded, label: 'Dév. Personnel', route: '/personal-growth'),
+    ];
+
     if (isDesktop) {
       return Scaffold(
         body: YitteAuroraBackdrop(
@@ -331,65 +342,134 @@ class _MainScaffoldShell extends ConsumerWidget {
                       const Divider(height: 1),
                       const SizedBox(height: 12),
                       Expanded(
-                        child: ListView.builder(
+                        child: ListView(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
-                          itemCount: navItems.length,
-                          itemBuilder: (ctx, i) {
-                            final item = navItems[i];
-                            final selected = navigationShell.currentIndex == i;
-                            final primary = Theme.of(ctx).colorScheme.primary;
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(10),
-                                  onTap: () => onSelectNav(i),
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 160),
-                                    curve: Curves.easeOutCubic,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 11,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                              child: Text(
+                                'NAVIGATION',
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                      letterSpacing: 1.2,
                                     ),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(10),
-                                      color: selected ? primary : Colors.transparent,
-                                      border: selected
-                                          ? Border.all(color: primary, width: 1)
-                                          : null,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          selected ? item.active : item.icon,
-                                          size: 20,
-                                          color: selected
-                                              ? Colors.white
-                                              : Theme.of(ctx).textTheme.bodyMedium?.color,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            item.label,
-                                            style: TextStyle(
-                                              fontSize: 13.5,
-                                              fontWeight: selected
-                                                  ? FontWeight.w700
-                                                  : FontWeight.w500,
-                                              color: selected
-                                                  ? Colors.white
-                                                  : Theme.of(ctx).colorScheme.onSurface,
+                              ),
+                            ),
+                            ...navItems.asMap().entries.map((entry) {
+                              final i = entry.key;
+                              final item = entry.value;
+                              final selected = navigationShell.currentIndex == i;
+                              final primary = Theme.of(context).colorScheme.primary;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(10),
+                                    onTap: () => onSelectNav(i),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 160),
+                                      curve: Curves.easeOutCubic,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(10),
+                                        color: selected ? primary : Colors.transparent,
+                                        border: selected
+                                            ? Border.all(color: primary, width: 1)
+                                            : null,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            selected ? item.active : item.icon,
+                                            size: 19,
+                                            color: selected
+                                                ? Colors.white
+                                                : Theme.of(context).textTheme.bodyMedium?.color,
+                                          ),
+                                          const SizedBox(width: 11),
+                                          Expanded(
+                                            child: Text(
+                                              item.label,
+                                              style: TextStyle(
+                                                fontSize: 13.5,
+                                                fontWeight: selected
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w500,
+                                                color: selected
+                                                    ? Colors.white
+                                                    : Theme.of(context).colorScheme.onSurface,
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
+                              );
+                            }),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Divider(height: 1),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                              child: Text(
+                                'ESPACES & MODULES',
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                      letterSpacing: 1.2,
+                                      color: tokens.goldAccent,
+                                    ),
                               ),
-                            );
-                          },
+                            ),
+                            ...quickSpaces.map((sp) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 2),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () => context.push(sp.route),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            sp.icon,
+                                            size: 17,
+                                            color: Theme.of(context).colorScheme.primary,
+                                          ),
+                                          const SizedBox(width: 11),
+                                          Expanded(
+                                            child: Text(
+                                              sp.label,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.copyWith(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ],
                         ),
                       ),
                       Padding(

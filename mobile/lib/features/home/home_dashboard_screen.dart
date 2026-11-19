@@ -21,6 +21,7 @@ class HomeDashboardScreen extends ConsumerStatefulWidget {
 
 class _HomeDashboardScreenState extends ConsumerState<HomeDashboardScreen> {
   int _quoteOffset = 0;
+  String _spaceFilter = 'Tous';
 
   @override
   Widget build(BuildContext context) {
@@ -197,7 +198,26 @@ class _HomeDashboardScreenState extends ConsumerState<HomeDashboardScreen> {
 
           const SizedBox(height: 28),
 
-          // 3. BLOC « DERNIÈRES CONTRIBUTIONS »
+          // 3. BLOC « VOS ESPACES » — Index organisé par pôles (accès 1 clic sans carrés multicolores)
+          _EditorialBlockLabel(
+            label: 'VOS ESPACES — ACCÈS ORGANISÉ',
+            trailing: Text(
+              '8 modules',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: tokens.goldAccent,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          _OrganizedSpacesSection(
+            selectedFilter: _spaceFilter,
+            onFilterChanged: (f) => setState(() => _spaceFilter = f),
+            onOpenRoute: (route) => context.push(route),
+          ),
+
+          const SizedBox(height: 28),
+
+          // 4. BLOC « DERNIÈRES CONTRIBUTIONS »
           _EditorialBlockLabel(
             label: 'DERNIÈRES CONTRIBUTIONS',
             trailing: InkWell(
@@ -918,6 +938,201 @@ class _NextEventCompactCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _OrganizedSpacesSection extends StatelessWidget {
+  final String selectedFilter;
+  final ValueChanged<String> onFilterChanged;
+  final ValueChanged<String> onOpenRoute;
+
+  const _OrganizedSpacesSection({
+    required this.selectedFilter,
+    required this.onFilterChanged,
+    required this.onOpenRoute,
+  });
+
+  static const _filters = [
+    'Tous',
+    'Spiritualité',
+    'Savoir',
+    'Arènes',
+  ];
+
+  static const _spaces = [
+    (
+      category: 'Spiritualité',
+      icon: Icons.mosque_outlined,
+      title: 'Yitté Zikr',
+      subtitle: 'صَلَّى اللهُ عَلَى مُحَمَّدٍ & objectif libre',
+      route: '/zikr',
+      gold: false,
+    ),
+    (
+      category: 'Spiritualité',
+      icon: Icons.event_outlined,
+      title: 'Extra Groupe',
+      subtitle: 'Rencontres mensuelles, invités & Q&A',
+      route: '/extra-groupe',
+      gold: true,
+    ),
+    (
+      category: 'Savoir',
+      icon: Icons.translate_rounded,
+      title: 'English Club',
+      subtitle: 'Cours A1–C2, LanguageTool & Dico MIT',
+      route: '/english-club',
+      gold: false,
+    ),
+    (
+      category: 'Savoir',
+      icon: Icons.folder_copy_outlined,
+      title: 'Bibliothèque Docs',
+      subtitle: '5 domaines & synthèses documentaires',
+      route: '/documents',
+      gold: false,
+    ),
+    (
+      category: 'Savoir',
+      icon: Icons.work_outline_rounded,
+      title: 'Yitté Professionnel',
+      subtitle: 'Projets libres, CV & opportunités',
+      route: '/professional',
+      gold: false,
+    ),
+    (
+      category: 'Spiritualité',
+      icon: Icons.lock_outline_rounded,
+      title: 'Développement Personnel',
+      subtitle: 'Journal privé, habitudes & lectures',
+      route: '/personal-growth',
+      gold: true,
+    ),
+    (
+      category: 'Arènes',
+      icon: Icons.record_voice_over_outlined,
+      title: 'Face-à-Face',
+      subtitle: 'Débats vocaux & grille 100 pts',
+      route: '/debates',
+      gold: false,
+    ),
+    (
+      category: 'Arènes',
+      icon: Icons.emoji_events_outlined,
+      title: 'Quiz Arena',
+      subtitle: 'Matchs 1v1 & tournois 8/16/32',
+      route: '/quiz-arena',
+      gold: true,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
+    final primary = Theme.of(context).colorScheme.primary;
+    final visible = selectedFilter == 'Tous'
+        ? _spaces
+        : _spaces.where((s) => s.category == selectedFilter).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: _filters.map((f) {
+              final active = f == selectedFilter;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(f),
+                  selected: active,
+                  showCheckmark: false,
+                  selectedColor: YitteColors.emerald,
+                  labelStyle: TextStyle(
+                    fontFamily: YitteFonts.ui,
+                    fontFamilyFallback: YitteFonts.fallback,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: active
+                        ? YitteColors.ivory
+                        : Theme.of(context).colorScheme.onSurface,
+                  ),
+                  onSelected: (_) => onFilterChanged(f),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        YitteSurfaceCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              for (int i = 0; i < visible.length; i++) ...[
+                InkWell(
+                  onTap: () => onOpenRoute(visible[i].route),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: tokens.subtleFill,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: tokens.borderSubtle,
+                              width: 1,
+                            ),
+                          ),
+                          child: Icon(
+                            visible[i].icon,
+                            size: 18,
+                            color: visible[i].gold ? tokens.goldAccent : primary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                visible[i].title,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                visible[i].subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: tokens.goldAccent,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (i < visible.length - 1)
+                  Divider(height: 1, thickness: 1, color: tokens.borderSubtle),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
