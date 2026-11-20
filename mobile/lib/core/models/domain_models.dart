@@ -884,6 +884,103 @@ class ZikrSessionModel {
   });
 }
 
+/// Session collective de Zikr inspirée de SDM Communauté :
+/// formule au choix ou libre, objectif global, contributions cumulées et partage.
+class CommunityZikrSessionModel {
+  final String id;
+  final String title;
+  final String formulaArabic;
+  final String formulaLabel;
+  final String transliteration;
+  final int targetCount;
+  final int currentCount;
+  final String creatorName;
+  final bool isPrivate;
+  final String shareCode;
+  final DateTime createdAt;
+  final Map<String, int> contributions;
+
+  const CommunityZikrSessionModel({
+    required this.id,
+    required this.title,
+    required this.formulaArabic,
+    required this.formulaLabel,
+    this.transliteration = '',
+    required this.targetCount,
+    this.currentCount = 0,
+    required this.creatorName,
+    this.isPrivate = false,
+    required this.shareCode,
+    required this.createdAt,
+    this.contributions = const {},
+  });
+
+  bool get isCompleted => targetCount > 0 && currentCount >= targetCount;
+
+  double get progressRatio =>
+      targetCount <= 0 ? 0.0 : (currentCount / targetCount).clamp(0.0, 1.0);
+
+  CommunityZikrSessionModel copyWith({
+    int? currentCount,
+    Map<String, int>? contributions,
+  }) {
+    return CommunityZikrSessionModel(
+      id: id,
+      title: title,
+      formulaArabic: formulaArabic,
+      formulaLabel: formulaLabel,
+      transliteration: transliteration,
+      targetCount: targetCount,
+      currentCount: currentCount ?? this.currentCount,
+      creatorName: creatorName,
+      isPrivate: isPrivate,
+      shareCode: shareCode,
+      createdAt: createdAt,
+      contributions: contributions ?? this.contributions,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'formula_arabic': formulaArabic,
+        'formula_label': formulaLabel,
+        'transliteration': transliteration,
+        'target_count': targetCount,
+        'current_count': currentCount,
+        'creator_name': creatorName,
+        'is_private': isPrivate,
+        'share_code': shareCode,
+        'created_at': createdAt.toIso8601String(),
+        'contributions': contributions,
+      };
+
+  factory CommunityZikrSessionModel.fromJson(Map<String, dynamic> j) {
+    final rawMap = j['contributions'];
+    final parsedContrib = <String, int>{};
+    if (rawMap is Map) {
+      rawMap.forEach((k, v) {
+        parsedContrib[k.toString()] = (v as num?)?.toInt() ?? 0;
+      });
+    }
+    return CommunityZikrSessionModel(
+      id: j['id']?.toString() ?? '',
+      title: j['title']?.toString() ?? '',
+      formulaArabic: j['formula_arabic']?.toString() ?? '',
+      formulaLabel: j['formula_label']?.toString() ?? '',
+      transliteration: j['transliteration']?.toString() ?? '',
+      targetCount: (j['target_count'] as num?)?.toInt() ?? 1000,
+      currentCount: (j['current_count'] as num?)?.toInt() ?? 0,
+      creatorName: j['creator_name']?.toString() ?? 'Membre',
+      isPrivate: j['is_private'] == true,
+      shareCode: j['share_code']?.toString() ?? 'YITTE',
+      createdAt:
+          DateTime.tryParse(j['created_at']?.toString() ?? '') ?? DateTime.now(),
+      contributions: parsedContrib,
+    );
+  }
+}
+
 class VocabularyWordModel {
   final String id;
   final String word;

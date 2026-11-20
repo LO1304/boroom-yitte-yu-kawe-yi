@@ -854,11 +854,48 @@ void main() {
     );
     expect(forSinceReply, contains('FOR vs SINCE'));
     expect(EnglishOpenSourceService.concreteCourses.length, 6);
+    expect(EnglishOpenSourceService.amyScenarios.length, 6);
+    expect(EnglishOpenSourceService.twelveWeekMasteryPlan.length, 6);
+    final amyReply = await coach.converseWithAmy(
+      userInput: 'Hello Amy, I joined BOROOM YITTE in 2026.',
+      scenario: EnglishOpenSourceService.amyScenarios.first,
+      turnIndex: 0,
+      variant: 'en-GB',
+      cefrLevel: 'B1',
+    );
+    expect(amyReply.amySpeechEn, contains('2026'));
 
     await tester.pumpWidget(_wrapScreen(const ZikrScreen()));
     await tester.pumpAndSettle();
     expect(find.text('صَلَّى اللهُ عَلَى مُحَمَّدٍ'), findsWidgets);
     expect(find.textContaining('Samedi 20h00'), findsNothing);
     expect(find.textContaining('Rejoindre le salon audio'), findsNothing);
+    expect(find.text('Chapelet'), findsOneWidget);
+    expect(find.text('Communauté'), findsOneWidget);
+    expect(find.text('Créer'), findsOneWidget);
+    expect(find.text('Historique'), findsOneWidget);
+
+    await tester.tap(find.text('Communauté'));
+    await tester.pumpAndSettle();
+    expect(find.text('Zikr en Communauté'), findsOneWidget);
+    expect(find.textContaining('Rejoindre & Compter'), findsWidgets);
+
+    final zikrNotifier = EcosystemNotifier();
+    final created = zikrNotifier.createCommunityZikrSession(
+      title: 'Grand Zikr du Vendredi',
+      formulaArabic: 'صَلَّى اللهُ عَلَى مُحَمَّدٍ',
+      formulaLabel: 'Ṣallallāhu ʿalā Muḥammad',
+      targetCount: 1000,
+      creatorName: 'Cheikh Mouhamadou Moustapha Lo',
+    );
+    zikrNotifier.contributeToCommunityZikrSession(
+      sessionId: created.id,
+      memberName: 'Cheikh Mouhamadou Moustapha Lo',
+      count: 100,
+    );
+    final updatedSession = zikrNotifier.state.communityZikrSessions
+        .firstWhere((s) => s.id == created.id);
+    expect(updatedSession.currentCount, 100);
+    expect(updatedSession.contributions['Cheikh Mouhamadou Moustapha Lo'], 100);
   });
 }

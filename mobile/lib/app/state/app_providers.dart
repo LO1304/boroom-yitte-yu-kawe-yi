@@ -247,6 +247,7 @@ class EcosystemState {
   final List<String> authorizedGroupMembers;
   final bool restrictAppToGroupOnly;
   final List<String> deletedReflectionIds;
+  final List<CommunityZikrSessionModel> communityZikrSessions;
 
   const EcosystemState({
     required this.reflections,
@@ -300,6 +301,7 @@ class EcosystemState {
     this.authorizedGroupMembers = GroupMembershipCatalog.officialMembers,
     this.restrictAppToGroupOnly = true,
     this.deletedReflectionIds = const [],
+    this.communityZikrSessions = const [],
   });
 
   EcosystemState copyWith({
@@ -356,6 +358,7 @@ class EcosystemState {
     List<String>? authorizedGroupMembers,
     bool? restrictAppToGroupOnly,
     List<String>? deletedReflectionIds,
+    List<CommunityZikrSessionModel>? communityZikrSessions,
   }) {
     return EcosystemState(
       reflections: reflections ?? this.reflections,
@@ -418,6 +421,8 @@ class EcosystemState {
       restrictAppToGroupOnly:
           restrictAppToGroupOnly ?? this.restrictAppToGroupOnly,
       deletedReflectionIds: deletedReflectionIds ?? this.deletedReflectionIds,
+      communityZikrSessions:
+          communityZikrSessions ?? this.communityZikrSessions,
     );
   }
 }
@@ -468,6 +473,8 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
       'announcements': state.announcements.map((e) => e.toJson()).toList(),
       'members': state.members.map((e) => e.toJson()).toList(),
       'quiz_leaderboard': state.quizLeaderboard.map((e) => e.toJson()).toList(),
+      'community_zikr_sessions':
+          state.communityZikrSessions.map((e) => e.toJson()).toList(),
       'library_documents':
           state.libraryDocuments.map((e) => e.toJson()).toList(),
       'extra_groupe_meetings':
@@ -615,6 +622,13 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
                 .map((e) => LeaderboardEntryModel.fromJson(Map<String, dynamic>.from(e)))
                 .toList()
             : state.quizLeaderboard,
+        communityZikrSessions: snap['community_zikr_sessions'] is List &&
+                (snap['community_zikr_sessions'] as List).isNotEmpty
+            ? (snap['community_zikr_sessions'] as List)
+                .map((e) => CommunityZikrSessionModel.fromJson(
+                    Map<String, dynamic>.from(e)))
+                .toList()
+            : state.communityZikrSessions,
         libraryDocuments: snap['library_documents'] is List
             ? (snap['library_documents'] as List)
                 .map((e) => LibraryDocumentModel.fromJson(Map<String, dynamic>.from(e)))
@@ -1229,6 +1243,70 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
         titleLabel: safeTitle,
       );
     }
+  }
+
+  CommunityZikrSessionModel createCommunityZikrSession({
+    required String title,
+    required String formulaArabic,
+    required String formulaLabel,
+    String transliteration = '',
+    required int targetCount,
+    required String creatorName,
+    bool isPrivate = false,
+  }) {
+    final safeTarget = targetCount.clamp(1, 10000000);
+    final code = _uuid.v4().substring(0, 6).toUpperCase();
+    final created = CommunityZikrSessionModel(
+      id: _uuid.v4(),
+      title: title.trim(),
+      formulaArabic: formulaArabic.trim(),
+      formulaLabel: formulaLabel.trim(),
+      transliteration: transliteration.trim(),
+      targetCount: safeTarget,
+      currentCount: 0,
+      creatorName: creatorName.trim().isEmpty ? 'Membre' : creatorName.trim(),
+      isPrivate: isPrivate,
+      shareCode: code,
+      createdAt: DateTime.now(),
+      contributions: const {},
+    );
+    state = state.copyWith(
+      communityZikrSessions: [created, ...state.communityZikrSessions],
+    );
+    _persistSnapshot();
+    return created;
+  }
+
+  void contributeToCommunityZikrSession({
+    required String sessionId,
+    required String memberName,
+    required int count,
+  }) {
+    if (count <= 0) return;
+    final safeMember = memberName.trim().isEmpty ? 'Membre' : memberName.trim();
+    final updated = state.communityZikrSessions.map((s) {
+      if (s.id != sessionId) return s;
+      final remaining = (s.targetCount - s.currentCount).clamp(0, s.targetCount);
+      if (remaining <= 0) return s;
+      final added = count > remaining ? remaining : count;
+      final nextContrib = Map<String, int>.from(s.contributions);
+      nextContrib[safeMember] = (nextContrib[safeMember] ?? 0) + added;
+      return s.copyWith(
+        currentCount: s.currentCount + added,
+        contributions: nextContrib,
+      );
+    }).toList();
+    state = state.copyWith(communityZikrSessions: updated);
+    _persistSnapshot();
+  }
+
+  void deleteCommunityZikrSession(String sessionId) {
+    state = state.copyWith(
+      communityZikrSessions: state.communityZikrSessions
+          .where((s) => s.id != sessionId)
+          .toList(),
+    );
+    _persistSnapshot();
   }
 
   Future<void> resetSalawatCycle() async {
@@ -2411,6 +2489,36 @@ EcosystemState _buildInitialState() {
     ],
     quizScoreTotal: 0,
     quizMatchesPlayed: 0,
+    communityZikrSessions: [
+      CommunityZikrSessionModel(
+        id: 'cz-salat-nabi',
+        title: 'Hadiya — صَلَّى اللهُ عَلَى مُحَمَّدٍ',
+        formulaArabic: 'صَلَّى اللهُ عَلَى مُحَمَّدٍ',
+        formulaLabel: 'Ṣallallāhu ʿalā Muḥammad',
+        transliteration: 'Ṣallallāhu ʿalā Muḥammad',
+        targetCount: 10000,
+        currentCount: 0,
+        creatorName: 'BOROOM YITTÉ',
+        isPrivate: false,
+        shareCode: 'SALAT1',
+        createdAt: DateTime.now(),
+        contributions: const {},
+      ),
+      CommunityZikrSessionModel(
+        id: 'cz-istighfar',
+        title: 'Zikr Collectif — Istighfār',
+        formulaArabic: 'أَسْتَغْفِرُ اللَّهَ الْعَظِيمَ',
+        formulaLabel: 'Astaghfirullāha l-ʿAẓīm',
+        transliteration: 'Astaghfirullāha l-ʿAẓīm',
+        targetCount: 3130,
+        currentCount: 0,
+        creatorName: 'BOROOM YITTÉ',
+        isPrivate: false,
+        shareCode: 'ISTIG1',
+        createdAt: DateTime.now(),
+        contributions: const {},
+      ),
+    ],
     zikrSessions: [
       ZikrSessionModel(
         id: 'zikr-sat-2000',

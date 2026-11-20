@@ -573,7 +573,7 @@ class EnglishOpenSourceService {
     if (q.contains('present perfect') || (q.contains('pass') && q.contains('perfect'))) {
       return '📘 PRESENT PERFECT vs PAST SIMPLE (Règle concrète)\n'
           '• PAST SIMPLE (verbe + -ed / 2e colonne) : action TERMINÉE et DATÉE dans le passé.\n'
-          '  ✅ Yesterday, I finished the report. / In 2024, we built a solar prototype.\n'
+          '  ✅ Yesterday, I finished the report. / In 2026, we launched BOROOM YITTÉ.\n'
           '• PRESENT PERFECT (have/has + participe passé) : lien direct avec le PRÉSENT ou expérience sans date précise.\n'
           '  ✅ I have already finished the report (il est prêt maintenant).\n'
           '  ✅ Have you ever worked on an international project?\n'
@@ -817,7 +817,7 @@ class EnglishOpenSourceService {
           'Faire la différence entre action passée close et bilan présent, et éliminer les faux amis.',
       coreRules: [
         'Present Perfect (have/has + V3) relie le passé au présent : "I have worked here for 3 years" (j’y travaille encore).',
-        'FOR + durée ("for two weeks") vs SINCE + point de départ ("since 2024", "since Monday").',
+        'FOR + durée ("for two weeks") vs SINCE + point de départ ("since 2026", "since Monday").',
         'Faux amis clés : actually = en fait, currently = actuellement, eventually = finalement, attend = assister à.',
       ],
       comparisons: [
@@ -845,8 +845,10 @@ class EnglishOpenSourceService {
         ),
         CourseDialogueLine(
           speaker: 'Bamba',
-          english: 'I have been a member since 2024, so for about two years now.',
-          french: 'Je suis membre depuis 2024, donc depuis environ deux ans maintenant.',
+          english:
+              'I have been a member of BOROOM YITTÉ since 2026, and we have worked together for several months.',
+          french:
+              'Je suis membre de BOROOM YITTÉ depuis 2026, et nous travaillons ensemble depuis plusieurs mois.',
         ),
         CourseDialogueLine(
           speaker: 'Diarra',
@@ -1171,4 +1173,327 @@ class EnglishOpenSourceService {
       url: 'https://tatoeba.org/fr/',
     ),
   ];
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // AMY — PROFESSEURE & PARTENAIRE DE CONVERSATION IA (VOIX FÉMININE EN)
+  // ═══════════════════════════════════════════════════════════════════════
+  static const List<AmyScenario> amyScenarios = [
+    AmyScenario(
+      id: 'intro',
+      titleFr: 'Se présenter',
+      levelRange: 'A1–A2',
+      openingEn:
+          "Hello! I'm Amy, your English speaking partner at BOROOM YITTÉ. Let's practise together! Could you introduce yourself and tell me what you study or work on?",
+      openingFr:
+          'Bonjour ! Je suis Amy, votre partenaire de pratique orale à BOROOM YITTÉ. Présentez-vous en anglais (prénom, études ou métier).',
+      followUpsEn: [
+        "Nice to meet you! Why did you decide to improve your English this year in 2026?",
+        "That is a clear goal. What do you enjoy doing in your free time, or what topics inspire you in BOROOM YITTÉ?",
+        "Great progress! How many minutes a day can you commit to speaking English with me?",
+        "Wonderful commitment! Let's summarise your routine in two complete English sentences.",
+      ],
+      sampleTargetEn:
+          "Hello Amy, my name is Aminata. I study engineering and I joined BOROOM YITTÉ in 2026 to speak English confidently.",
+    ),
+    AmyScenario(
+      id: 'interview',
+      titleFr: 'Entretien pro',
+      levelRange: 'B1–B2',
+      openingEn:
+          "Good morning! I'm Amy, and today I'll be your interviewer. Take a deep breath and answer clearly: Tell me about yourself and one achievement you are proud of.",
+      openingFr:
+          'Mode entretien réel (méthode STAR). Répondez en présentant votre parcours et une réalisation concrète.',
+      followUpsEn: [
+        "Thank you. Can you describe a difficult technical or team challenge you faced, and how you solved it?",
+        "That shows initiative. What are your main strengths, and one skill you are actively developing right now?",
+        "Where do you see yourself in three years, and how does this opportunity fit your long-term vision?",
+        "Excellent interview practice! Do you have a thoughtful question to ask me about the team or role?",
+      ],
+      sampleTargetEn:
+          "I am a motivated graduate with hands-on project experience. Recently, I coordinated a team task and delivered results ahead of schedule.",
+    ),
+    AmyScenario(
+      id: 'daily',
+      titleFr: 'Vie quotidienne',
+      levelRange: 'A2–B1',
+      openingEn:
+          "Hi! It's Amy. Imagine we just met at a café in London after a conference. How was your morning, and what would you like to order?",
+      openingFr:
+          'Mise en situation naturelle (café, voyage, politesse anglaise : "Could I have...", "I would like...").',
+      followUpsEn: [
+        "Good choice! By the way, how did you get here today — did you take the train or walk?",
+        "If you had to ask a stranger for directions to the nearest library politely, what would you say?",
+        "Imagine your flight is delayed by two hours. How would you ask the desk agent for an update?",
+        "You sounded very polite and natural! What everyday situation would you like to practise next?",
+      ],
+      sampleTargetEn:
+          "Good morning! My morning was busy but productive. Could I have a green tea and a bottle of water, please?",
+    ),
+    AmyScenario(
+      id: 'project',
+      titleFr: 'Présenter un projet',
+      levelRange: 'B2',
+      openingEn:
+          "Welcome back! I'm Amy. Pitch me a real project you care about — in science, agriculture, tech, medicine or business. What problem does it solve?",
+      openingFr:
+          'Présentez un projet concret en 3 temps : Problème → Solution → Impact attendu.',
+      followUpsEn: [
+        "Interesting concept! Who benefits directly from your project, and what makes your approach practical?",
+        "What is the biggest obstacle or risk right now, and how do you plan to overcome it?",
+        "Suppose you only have 30 seconds to convince a partner to support this project. Give me your key message!",
+        "Very structured pitch! Notice how clear transitions make technical ideas easy to follow.",
+      ],
+      sampleTargetEn:
+          "Our project addresses water waste in agriculture by using low-cost moisture sensors to optimise irrigation schedules.",
+    ),
+    AmyScenario(
+      id: 'debate',
+      titleFr: 'Débat & Nuance',
+      levelRange: 'C1',
+      openingEn:
+          "Hello! Amy here for our C1 speaking seminar. Here is today's motion: Does artificial intelligence strengthen or weaken human critical thinking? Give me a nuanced stance.",
+      openingFr:
+          'Exprimez une thèse nuancée en utilisant des connecteurs (Although, Nevertheless, Provided that, Granted).',
+      followUpsEn: [
+        "Fair point. However, what would you reply to someone who argues that instant answers reduce deep reading?",
+        "Interesting nuance. Can you illustrate your argument with a concrete example from education or research?",
+        "To conclude our debate, what single principle should guide young scholars using technology wisely?",
+        "Impressive reasoning! Your discourse markers gave real rhythm and precision to your argument.",
+      ],
+      sampleTargetEn:
+          "Although AI accelerates research, it only strengthens critical thinking provided that learners actively verify every claim.",
+    ),
+    AmyScenario(
+      id: 'shadowing',
+      titleFr: 'Prononciation',
+      levelRange: 'Tous niveaux',
+      openingEn:
+          "Hi! Let's train your pronunciation together with shadowing. Listen carefully and repeat aloud: 'Although three thoughtful thinkers worked through the afternoon, they remained thoroughly focused.'",
+      openingFr:
+          'Travail ciblé sur les sons pièges francophones : "th" (/θ/ et /ð/), "h" expiré et terminaisons "-ed". Écoutez Amy puis répétez au micro !',
+      followUpsEn: [
+        "Great effort! Now focus on the aspirated 'H' — repeat after me: 'Henry hopes his honest habits help him handle hard challenges.'",
+        "Now let's practise '-ed' endings (/t/, /d/, /ɪd/): 'We worked hard, learned fast, and decided to improve every day.'",
+        "Now word stress: 'We must de-VE-lop a clear PRO-ject and pre-SENT our re-SULTS with con-fi-dence.'",
+        "Brilliant pronunciation workout! Daily 5-minute shadowing with Amy transforms your clarity in weeks.",
+      ],
+      sampleTargetEn:
+          "Although three thoughtful thinkers worked through the afternoon, they remained thoroughly focused.",
+    ),
+  ];
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PROGRAMME RIGOUREUX 12 SEMAINES (MÉTHODE CELTA / CAMBRIDGE — 4 COMPÉTENCES)
+  // ═══════════════════════════════════════════════════════════════════════
+  static const List<TwelveWeekPhase> twelveWeekMasteryPlan = [
+    TwelveWeekPhase(
+      phaseCode: 'Semaines 1–2',
+      cefr: 'A1 → A2',
+      title: 'Fondations, Sons Pièges & Automatisme Oral',
+      dailyRoutineFr:
+          '30 min/j : 5 min Shadowing avec Amy • 10 min Grammaire A1 • 10 min Dialogue "Se présenter" • 5 min 5 phrases écrites.',
+      listeningGoal: 'Comprendre des présentations lentes (0.8x) et identifier les mots-clés.',
+      speakingGoal: 'Se présenter 90 secondes sans blocage avec Amy (identité, parcours, 2026).',
+      readingGoal: 'Lire des textes courts et comprendre la structure Sujet + Verbe + Complément.',
+      writingGoal: 'Rédiger 8 phrases exactes sans erreur d’auxiliaire (do/does/to be).',
+    ),
+    TwelveWeekPhase(
+      phaseCode: 'Semaines 3–4',
+      cefr: 'A2+ → B1',
+      title: 'Récit au Passé, Projets Futurs & Politesse',
+      dailyRoutineFr:
+          '30 min/j : 10 min Cours A2 (Past Simple, Going to, Can/Could) • 10 min Scénario "Vie quotidienne" avec Amy • 10 min Verbes irréguliers.',
+      listeningGoal: 'Saisir les informations clés d’un dialogue quotidien (VOA / BBC).',
+      speakingGoal: 'Raconter une journée ou demander un service poliment avec Amy.',
+      readingGoal: 'Lire un article court en anglais en utilisant le Dictionnaire MIT intégré.',
+      writingGoal: 'Rédiger un paragraphe narratif au passé sans confondre "did + base verbale".',
+    ),
+    TwelveWeekPhase(
+      phaseCode: 'Semaines 5–6',
+      cefr: 'B1',
+      title: 'Present Perfect, For/Since & Faux Amis FR→EN',
+      dailyRoutineFr:
+          '35 min/j : 10 min Cours B1 • 10 min Correction LanguageTool sur un texte libre • 15 min Conversation libre avec Amy.',
+      listeningGoal: 'Suivre une émission "6 Minute English" (BBC) avec script vérifié.',
+      speakingGoal: 'Tenir un échange de 5 tours continus avec Amy sans repasser au français.',
+      readingGoal: 'Repérer les faux amis (actually, library, sensible, attend, resume).',
+      writingGoal: 'Produire 120 mots sur un sujet d’actualité vérifiés à <2 fautes.',
+    ),
+    TwelveWeekPhase(
+      phaseCode: 'Semaines 7–8',
+      cefr: 'B2',
+      title: 'Anglais Professionnel, Entretiens STAR & Projets',
+      dailyRoutineFr:
+          '40 min/j : 10 min Cours B2 (Conditionnels & Phrasal Verbs) • 15 min Scénario "Entretien pro" ou "Projet" avec Amy • 15 min Pitch oral évalué.',
+      listeningGoal: 'Comprendre une présentation professionnelle ou technique à vitesse normale.',
+      speakingGoal: 'Répondre à 4 questions d’entretien STAR et pitcher un projet en 2 min.',
+      readingGoal: 'Lire une offre d’emploi, une documentation technique ou un rapport.',
+      writingGoal: 'Écrire un email professionnel et une présentation de projet structurée.',
+    ),
+    TwelveWeekPhase(
+      phaseCode: 'Semaines 9–10',
+      cefr: 'C1',
+      title: 'Argumentation Nuancée, Synthèse & Discours Académique',
+      dailyRoutineFr:
+          '40 min/j : 10 min Cours C1 (Concession, Passif avancé) • 15 min Scénario "Débat & Nuance" avec Amy • 15 min Essai argumenté.',
+      listeningGoal: 'Analyser des débats et conférences complexes en relevant la nuance.',
+      speakingGoal: 'Défendre une thèse et répondre aux contre-arguments avec fluidité.',
+      readingGoal: 'Synthétiser un article scientifique ou philosophique en 5 points clés.',
+      writingGoal: 'Rédiger un essai structuré de 250 mots avec connecteurs C1.',
+    ),
+    TwelveWeekPhase(
+      phaseCode: 'Semaines 11–12',
+      cefr: 'C2',
+      title: 'Fluidité Naturelle, Idiomes & Autonomie Totale',
+      dailyRoutineFr:
+          '45 min/j : 10 min Shadowing vitesse native avec Amy • 20 min Débat improvisé 3 min • 15 min Lecture & reformulation idiomatique.',
+      listeningGoal: 'Comprendre l’anglais authentique (UK & US) y compris l’implicite.',
+      speakingGoal: 'Parler 3 minutes en continu sur un thème tiré au sort avec score >85/100.',
+      readingGoal: 'Lire des ouvrages et essais complexes sans traduction mentale.',
+      writingGoal: 'Écrire avec précision stylistique, concision et registre adapté.',
+    ),
+  ];
+
+  /// Moteur de conversation multi-tours avec Amy (correction LanguageTool + réponse anglaise orale + relance).
+  Future<AmyTurnReply> converseWithAmy({
+    required String userInput,
+    required AmyScenario scenario,
+    required int turnIndex,
+    required String variant,
+    required String cefrLevel,
+  }) async {
+    final trimmed = userInput.trim();
+    if (trimmed.isEmpty) {
+      return AmyTurnReply(
+        amySpeechEn: scenario.openingEn,
+        amyTranslationFr: scenario.openingFr,
+        correctionNote: null,
+        nativeUpgrade: null,
+        nextPromptEn: scenario.openingEn,
+      );
+    }
+
+    final check = await checkGrammarLive(trimmed, language: variant);
+    final hasIssues = check.issues.isNotEmpty;
+    final words = trimmed.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    final engineLabel = check.usedOnlineApi
+        ? 'LanguageTool en direct'
+        : 'Correcteur FR→EN';
+
+    String? correctionNote;
+    if (hasIssues) {
+      final firstIssues = check.issues.take(3).map((i) {
+        final repl = i.replacements.isNotEmpty ? i.replacements.first : '...';
+        return '« ${i.badText} » → « $repl » (${i.message})';
+      }).join('\n• ');
+      correctionNote =
+          'Correction d’Amy ($engineLabel) :\n• $firstIssues\nPhrase corrigée : "${check.correctedText}"';
+    } else if (words < 5) {
+      correctionNote =
+          'Conseil d’Amy : votre réponse est correcte, essayez d’allonger avec une raison ("because...") ou un exemple ("for example...") pour muscler votre fluidité !';
+    }
+
+    final upgraded = _buildNativeUpgrade(check.correctedText, scenario.id);
+    final followUp = scenario.followUpsEn.isNotEmpty
+        ? scenario.followUpsEn[turnIndex % scenario.followUpsEn.length]
+        : "That's very interesting! Could you tell me a bit more about that?";
+
+    final reactionEn = hasIssues
+        ? "Thank you for sharing! I understood you clearly — just remember to say: \"${check.correctedText}\"."
+        : (words >= 12
+            ? "Well expressed! Your sentence structure is clear and natural."
+            : "Good answer! Clear and direct.");
+
+    final amySpeechEn = '$reactionEn $followUp';
+    final amyTranslationFr = hasIssues
+        ? 'Amy vous a bien compris, a corrigé votre tournure et relance l’échange. Cliquez sur « Écouter Amy » pour travailler votre oreille !'
+        : 'Très bien formulé ! Amy poursuit la conversation — répondez au micro ou à l’écrit.';
+
+    return AmyTurnReply(
+      amySpeechEn: amySpeechEn,
+      amyTranslationFr: amyTranslationFr,
+      correctionNote: correctionNote,
+      nativeUpgrade: upgraded,
+      nextPromptEn: followUp,
+    );
+  }
+
+  String? _buildNativeUpgrade(String cleanText, String scenarioId) {
+    final lower = cleanText.toLowerCase();
+    if (lower.length < 12) return null;
+    if (lower.startsWith('i think ')) {
+      return 'From my perspective, ${cleanText.substring(8)}';
+    }
+    if (lower.startsWith('i want to ')) {
+      return 'I aim to ${cleanText.substring(10)}';
+    }
+    if (lower.startsWith('my name is ')) {
+      return '$cleanText, and I am delighted to practise with you today.';
+    }
+    if (scenarioId == 'interview' && !lower.contains('result')) {
+      return 'In that role, $cleanText — which produced a measurable outcome for the team.';
+    }
+    if (scenarioId == 'debate' && !lower.contains('however') && !lower.contains('although')) {
+      return 'While there are valid counterarguments, $cleanText';
+    }
+    return null;
+  }
+}
+
+class AmyScenario {
+  final String id;
+  final String titleFr;
+  final String levelRange;
+  final String openingEn;
+  final String openingFr;
+  final List<String> followUpsEn;
+  final String sampleTargetEn;
+
+  const AmyScenario({
+    required this.id,
+    required this.titleFr,
+    required this.levelRange,
+    required this.openingEn,
+    required this.openingFr,
+    required this.followUpsEn,
+    required this.sampleTargetEn,
+  });
+}
+
+class AmyTurnReply {
+  final String amySpeechEn;
+  final String amyTranslationFr;
+  final String? correctionNote;
+  final String? nativeUpgrade;
+  final String nextPromptEn;
+
+  const AmyTurnReply({
+    required this.amySpeechEn,
+    required this.amyTranslationFr,
+    this.correctionNote,
+    this.nativeUpgrade,
+    required this.nextPromptEn,
+  });
+}
+
+class TwelveWeekPhase {
+  final String phaseCode;
+  final String cefr;
+  final String title;
+  final String dailyRoutineFr;
+  final String listeningGoal;
+  final String speakingGoal;
+  final String readingGoal;
+  final String writingGoal;
+
+  const TwelveWeekPhase({
+    required this.phaseCode,
+    required this.cefr,
+    required this.title,
+    required this.dailyRoutineFr,
+    required this.listeningGoal,
+    required this.speakingGoal,
+    required this.readingGoal,
+    required this.writingGoal,
+  });
 }

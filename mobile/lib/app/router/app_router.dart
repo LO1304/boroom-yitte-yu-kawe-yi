@@ -278,238 +278,137 @@ class _MainScaffoldShell extends ConsumerWidget {
       (icon: Icons.groups_outlined, active: Icons.groups_rounded, label: s.t('nav_community')),
     ];
 
-    const quickSpaces = [
-      (icon: Icons.mosque_outlined, label: 'Yitté Zikr', route: '/zikr'),
-      (icon: Icons.translate_rounded, label: 'English Club', route: '/english-club'),
-      (icon: Icons.folder_copy_outlined, label: 'Bibliothèque Docs', route: '/documents'),
-      (icon: Icons.event_outlined, label: 'Extra Groupe', route: '/extra-groupe'),
-      (icon: Icons.record_voice_over_outlined, label: 'Face-à-Face', route: '/debates'),
-      (icon: Icons.emoji_events_outlined, label: 'Quiz Arena', route: '/quiz-arena'),
-      (icon: Icons.work_outline_rounded, label: 'Professionnel', route: '/professional'),
-      (icon: Icons.lock_outline_rounded, label: 'Dév. Personnel', route: '/personal-growth'),
-    ];
-
     if (isDesktop) {
+      final primary = Theme.of(context).colorScheme.primary;
       return Scaffold(
         body: YitteAuroraBackdrop(
-          child: Row(
+          child: Column(
             children: [
+              // Barre horizontale supérieure propre (fini la petite colonne étroite)
               Container(
-                width: 244,
+                height: 58,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 decoration: BoxDecoration(
                   color: tokens.elevated,
-                  border: Border(right: BorderSide(color: tokens.borderSubtle, width: 1)),
+                  border: Border(
+                    bottom: BorderSide(color: tokens.borderSubtle, width: 1),
+                  ),
                 ),
-                child: SafeArea(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 18, 16, 16),
-                        child: Row(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1120),
+                    child: Row(
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            YitteIconBadge(
-                              color: Theme.of(context).colorScheme.primary,
-                              size: 40,
-                              customIcon: const SanctuaryPrayerIcon(size: 20),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'BOROOM YITTÉ',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                          fontFamily: YitteFonts.display,
-                                          fontSize: 14,
-                                        ),
-                                  ),
-                                  Text(
-                                    tokens.visualModel.labelFr,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context).textTheme.labelMedium,
-                                  ),
-                                ],
+                            const SanctuaryPrayerIcon(size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'BOROOM YITTÉ',
+                              style: TextStyle(
+                                fontFamily: YitteFonts.display,
+                                fontFamilyFallback: YitteFonts.fallback,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                letterSpacing: 0.9,
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      const Divider(height: 1),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: ListView(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-                              child: Text(
-                                'NAVIGATION',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                      letterSpacing: 1.2,
-                                    ),
-                              ),
-                            ),
-                            ...navItems.asMap().entries.map((entry) {
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: navItems.asMap().entries.map((entry) {
                               final i = entry.key;
                               final item = entry.value;
                               final selected = navigationShell.currentIndex == i;
-                              final primary = Theme.of(context).colorScheme.primary;
                               return Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(10),
-                                    onTap: () => onSelectNav(i),
-                                    child: AnimatedContainer(
-                                      duration: const Duration(milliseconds: 160),
-                                      curve: Curves.easeOutCubic,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 10,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(10),
-                                        color: selected ? primary : Colors.transparent,
-                                        border: selected
-                                            ? Border.all(color: primary, width: 1)
-                                            : null,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            selected ? item.active : item.icon,
-                                            size: 19,
-                                            color: selected
-                                                ? Colors.white
-                                                : Theme.of(context).textTheme.bodyMedium?.color,
-                                          ),
-                                          const SizedBox(width: 11),
-                                          Expanded(
-                                            child: Text(
-                                              item.label,
-                                              style: TextStyle(
-                                                fontSize: 13.5,
-                                                fontWeight: selected
-                                                    ? FontWeight.w700
-                                                    : FontWeight.w500,
-                                                color: selected
-                                                    ? Colors.white
-                                                    : Theme.of(context).colorScheme.onSurface,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                padding: const EdgeInsets.symmetric(horizontal: 3),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () => onSelectNav(i),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 160),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 13,
+                                      vertical: 8,
                                     ),
-                                  ),
-                                ),
-                              );
-                            }),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 10),
-                              child: Divider(height: 1),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-                              child: Text(
-                                'ESPACES & MODULES',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                      letterSpacing: 1.2,
-                                      color: tokens.goldAccent,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: selected
+                                          ? primary
+                                          : Colors.transparent,
                                     ),
-                              ),
-                            ),
-                            ...quickSpaces.map((sp) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 2),
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(8),
-                                    onTap: () => context.push(sp.route),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            sp.icon,
-                                            size: 17,
-                                            color: Theme.of(context).colorScheme.primary,
-                                          ),
-                                          const SizedBox(width: 11),
-                                          Expanded(
-                                            child: Text(
-                                              sp.label,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: Theme.of(context)
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          selected ? item.active : item.icon,
+                                          size: 17,
+                                          color: selected
+                                              ? Colors.white
+                                              : Theme.of(context)
                                                   .textTheme
                                                   .bodyMedium
-                                                  ?.copyWith(
-                                                    color: Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurface,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                            ),
+                                                  ?.color,
+                                        ),
+                                        const SizedBox(width: 7),
+                                        Text(
+                                          item.label,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: selected
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                            color: selected
+                                                ? Colors.white
+                                                : Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurface,
                                           ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
                               );
-                            }),
-                          ],
+                            }).toList(),
+                          ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                final next = (themeMode == ThemeMode.dark ||
-                                        (themeMode == ThemeMode.system && isDark))
-                                    ? ThemeMode.light
-                                    : ThemeMode.dark;
-                                ref.read(themeModeProvider.notifier).setMode(next);
-                              },
-                              icon: Icon(
-                                isDark
-                                    ? Icons.light_mode_outlined
-                                    : Icons.dark_mode_outlined,
-                                size: 17,
-                              ),
-                              label: Text(isDark ? 'Passer en Clair' : 'Passer en Sombre'),
-                            ),
-                            const SizedBox(height: 8),
-                            ElevatedButton.icon(
-                              onPressed: () => showDesignStudioSheet(context),
-                              icon: const Icon(Icons.tune_outlined, size: 17),
-                              label: const Text('Thèmes & Modèles'),
-                            ),
-                          ],
+                        const SizedBox(width: 12),
+                        IconButton(
+                          tooltip: isDark ? 'Mode Clair' : 'Mode Sombre',
+                          onPressed: () {
+                            final next = (themeMode == ThemeMode.dark ||
+                                    (themeMode == ThemeMode.system && isDark))
+                                ? ThemeMode.light
+                                : ThemeMode.dark;
+                            ref.read(themeModeProvider.notifier).setMode(next);
+                          },
+                          icon: Icon(
+                            isDark
+                                ? Icons.light_mode_outlined
+                                : Icons.dark_mode_outlined,
+                            size: 19,
+                          ),
                         ),
-                      ),
-                    ],
+                        IconButton(
+                          tooltip: 'Thèmes & Modèles',
+                          onPressed: () => showDesignStudioSheet(context),
+                          icon: const Icon(Icons.tune_outlined, size: 19),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
               Expanded(
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1120),
+                    constraints: const BoxConstraints(maxWidth: 1080),
                     child: navigationShell,
                   ),
                 ),

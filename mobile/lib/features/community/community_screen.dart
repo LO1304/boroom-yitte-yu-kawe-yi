@@ -177,7 +177,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           YitteReveal(
             order: 0,
             child: EditorialHeroBanner(
-              eyebrow: 'FRATERNITÉ, ÉCHANGES & EXTRA GROUPE',
+              eyebrow: 'FRATERNITÉ, ÉCHANGES & EXTRA GROUPE • FONDÉ EN 2026',
               accentColor: YitteDomainAccents.community,
               title: 'Vie Communautaire',
               subtitle:

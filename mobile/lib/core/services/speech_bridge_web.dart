@@ -17,6 +17,8 @@ extension type _SpeechUtterance._(JSObject _) implements JSObject {
   external factory _SpeechUtterance(JSString text);
   external set lang(JSString value);
   external set rate(JSNumber value);
+  external set pitch(JSNumber value);
+  external set voice(JSObject? value);
 }
 
 @JS('Blob')
@@ -76,7 +78,94 @@ class SpeechBridge {
     }
   }
 
-  static void speak(String text, {String locale = 'en-GB'}) {
+  static JSObject? _pickVoice(
+    JSObject synth,
+    String locale, {
+    required bool preferFemale,
+  }) {
+    try {
+      final voicesAny = synth.callMethod('getVoices'.toJS);
+      if (voicesAny == null || !voicesAny.isA<JSArray>()) return null;
+      final list = (voicesAny as JSArray).toDart;
+      if (list.isEmpty) return null;
+
+      final targetLang = locale.toLowerCase();
+      final shortLang = targetLang.split('-').first;
+      const femaleHints = [
+        'amy',
+        'sonia',
+        'libby',
+        'aria',
+        'jenny',
+        'hazel',
+        'samantha',
+        'karen',
+        'victoria',
+        'moira',
+        'fiona',
+        'zira',
+        'susan',
+        'emma',
+        'female',
+        'google uk english female',
+      ];
+      const maleHints = [
+        'george',
+        'david',
+        'mark',
+        'daniel',
+        'guy',
+        'ryan',
+        'male',
+        'google uk english male',
+      ];
+
+      JSObject? bestExactFemale;
+      JSObject? bestAnyEnFemale;
+      JSObject? bestExactAny;
+
+      for (final vAny in list) {
+        if (vAny == null || !vAny.isA<JSObject>()) continue;
+        final v = vAny as JSObject;
+        final nameAny = v['name'];
+        final langAny = v['lang'];
+        final name = (nameAny != null && nameAny.isA<JSString>())
+            ? (nameAny as JSString).toDart.toLowerCase()
+            : '';
+        final vLang = (langAny != null && langAny.isA<JSString>())
+            ? (langAny as JSString).toDart.toLowerCase()
+            : '';
+        if (!vLang.startsWith(shortLang)) continue;
+
+        final isExact = vLang == targetLang || vLang.startsWith(targetLang);
+        final isFemale = femaleHints.any((h) => name.contains(h));
+        final isMale = maleHints.any((h) => name.contains(h));
+
+        if (preferFemale) {
+          if (isExact && isFemale) return v;
+          if (isFemale && bestAnyEnFemale == null) bestAnyEnFemale = v;
+          if (isExact && !isMale && bestExactFemale == null) {
+            bestExactFemale = v;
+          }
+        }
+        if (isExact && bestExactAny == null) bestExactAny = v;
+      }
+
+      if (preferFemale) {
+        return bestAnyEnFemale ?? bestExactFemale ?? bestExactAny;
+      }
+      return bestExactAny;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void speak(
+    String text, {
+    String locale = 'en-GB',
+    double rate = 0.94,
+    bool preferFemale = false,
+  }) {
     try {
       final synthAny = _window['speechSynthesis'];
       if (synthAny == null || !synthAny.isA<JSObject>()) return;
@@ -84,7 +173,12 @@ class SpeechBridge {
       synth.callMethod('cancel'.toJS);
       final utt = _SpeechUtterance(text.toJS);
       utt.lang = locale.toJS;
-      utt.rate = (0.95).toJS;
+      utt.rate = rate.clamp(0.6, 1.3).toJS;
+      utt.pitch = (preferFemale ? 1.06 : 1.0).toJS;
+      final chosen = _pickVoice(synth, locale, preferFemale: preferFemale);
+      if (chosen != null) {
+        utt.voice = chosen;
+      }
       synth.callMethod('speak'.toJS, utt);
     } catch (_) {
       // Ignore smoothly if browser audio is blocked or unsupported

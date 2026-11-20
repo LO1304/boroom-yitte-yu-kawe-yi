@@ -10,7 +10,12 @@ class SpeechBridge {
 
   static Future<Uint8List?> readBlobBytes(String url) async => null;
 
-  static void speak(String text, {String locale = 'en-GB'}) {}
+  static void speak(
+    String text, {
+    String locale = 'en-GB',
+    double rate = 0.94,
+    bool preferFemale = false,
+  }) {}
 
   static void stopSpeaking() {}
 
