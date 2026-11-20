@@ -113,7 +113,7 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
     final tokens = AppTheme.tokensOf(context);
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: tokens.canvas,
       appBar: AppBar(
         title: const Text('YITTÉ ZIKR'),
       ),
