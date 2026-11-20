@@ -4,8 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/state/app_providers.dart';
 import '../../core/services/audio_service.dart';
+import '../../core/services/english_learna_curriculum.dart';
 import '../../core/services/english_open_source_service.dart';
-import '../../core/services/external_link_bridge.dart';
 import '../../core/services/speech_bridge.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/editorial_widgets.dart';
@@ -18,204 +18,218 @@ class EnglishClubScreen extends ConsumerStatefulWidget {
 }
 
 class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
-  static const _stepsPrefKey = 'yitte_english_completed_steps_v1';
+  static const _completedLessonsPrefKey = 'yitte_learna_completed_lessons_v2';
+  static const _cefrPrefKey = 'yitte_learna_cefr_v2';
 
-  int _activeTab = 0; // 0 = Parcours & Oral, 1 = Amy (Oral IA), 2 = Dictionnaire, 3 = Programme A1-C2
-  String _variant = 'en-GB';
+  // 0 = Discuter (Amy), 1 = Cours (A1–C2), 2 = Vocabulaire
+  int _activeTab = 0;
   String _cefr = 'B1';
-  bool _consent = false;
-  final _speechCtrl = TextEditingController();
-  final _coachCtrl = TextEditingController();
-  final _amyInputCtrl = TextEditingController();
-  int _amyScenarioIdx = 0;
-  bool _amyAutoSpeak = true;
-  String _amyVoiceProfile = 'amy-fluent-us'; // amy-fluent-us (Ava), amy-soft-uk (Libby), amy-clear-uk (Sonia)
-  double _amyRate = 0.96; // 0.78 (Lent), 0.96 (Fluide), 1.14 (Natif)
+  String _voiceProfile = 'amy-soft-uk'; // amy-soft-uk (UK) | amy-fluent-us (US)
+  double _speechRate = 0.96; // 0.96 (Fluide) | 0.78 (Lent)
+
+  // Conversation naturelle avec Amy (façon Learna AI)
+  int _topicIdx = 0;
+  LearnaTopic? _customLessonTopic;
+  final _chatInputCtrl = TextEditingController();
+  final _chatScrollCtrl = ScrollController();
   bool _amyBusy = false;
-  bool _amyListening = false;
+  bool _listening = false;
   bool _amySpeaking = false;
-  int? _speakingMessageIdx;
+  int? _speakingMsgIdx;
   int _speakingWordIdx = -1;
-  String _amyVoiceEngineLabel = 'Voix Neurale Studio';
-  final Set<int> _revealedTranslations = {0};
-  bool _showAmyHints = true;
-  List<String> _amyHints = const [];
-  String? _tappedWord;
-  String? _tappedWordInfo;
-  bool _tappedWordLoading = false;
-  String? _shadowingTarget;
-  ShadowingEvaluation? _shadowingEval;
-  final List<int> _amyTurnScores = [];
+  bool _showHelpDrawer = false;
+  List<String> _currentHints = const [];
+  final Set<int> _revealedTranslations = {};
+  final List<_ChatBubble> _messages = [];
+  final List<int> _turnScores = [];
   int _solidTurnsAtLevel = 0;
-  String? _lastEstimatedCefr;
-  final List<_AmyChatMessage> _amyMessages = [];
 
-  List<AmyScenario> get _allAmyScenarios => [
-        EnglishOpenSourceService.freeDiscussionScenario,
-        ...EnglishOpenSourceService.amyScenarios,
-      ];
-  final _dictLookupCtrl = TextEditingController(text: 'resilience');
-  final _ltCheckCtrl = TextEditingController(
-    text: 'Despite of the rain, I have saw him yesterday and we discussed about informations.',
-  );
-  final _vocabSearchCtrl = TextEditingController();
-  String _vocabQuery = '';
-  String _vocabCefrFilter = 'Tous';
-  String? _coachReply;
-  bool _coachLoading = false;
-  String _grammarFeedback = '';
-  int _grammarIdx = 0;
-  String _vocabFeedback = '';
-  int _vocabIdx = 0;
-  int _vocabXp = 0;
-  bool _busy = false;
+  // Mini-dictionnaire au clic sur un mot d'Amy
+  String? _tappedWord;
+  String? _tappedWordDef;
+  bool _tappedWordLoading = false;
 
-  final _openDictService = EnglishOpenSourceService();
-  bool _lookingUpDict = false;
+  // Cours interactifs (18 leçons A1 → C2)
+  LearnaLesson? _openLesson;
+  Set<String> _completedLessonIds = {};
+  final Map<String, String> _lessonQuizFeedback = {};
+
+  // Vocabulaire & recherche de mots
+  final _dictCtrl = TextEditingController();
+  final _service = EnglishOpenSourceService();
+  bool _searchingWord = false;
   OpenDictionaryEntry? _dictEntry;
   String? _dictError;
-  bool _checkingLt = false;
-  LanguageToolCheckResult? _ltResult;
-  Set<String> _completedStepIds = {};
-  final Map<String, String> _courseQuizFeedback = {};
 
-  static const _coachQuickTopics = [
-    'For vs Since',
-    'Present Perfect',
-    'Make vs Do',
-    'Faux amis FR→EN',
-    'In / On / At',
-    'Conditionnels',
-    'Entretien STAR',
-    'Phrasal Verbs',
-    'Prononciation',
-  ];
+  LearnaTopic get _activeTopic =>
+      _customLessonTopic ??
+      EnglishLearnaCurriculum.naturalTopics[
+          _topicIdx.clamp(0, EnglishLearnaCurriculum.naturalTopics.length - 1)];
 
-  static const _grammarDrills = [
-    (
-      question: '"_____ the difficulty, she spoke clearly."',
-      options: ['Although', 'Despite', 'Whereas'],
-      answer: 'Despite',
-      explain: '"Despite" is followed by a noun phrase ("the difficulty"); "Although/Whereas" require a clause.',
-    ),
-    (
-      question: '"The team discussed _____ the new architecture this morning."',
-      options: ['about', '(no preposition)', 'around'],
-      answer: '(no preposition)',
-      explain: '"Discuss" is transitive in English ("discuss the architecture", never "discuss about").',
-    ),
-    (
-      question: '"Could you give me _____ practical advice before the debate?"',
-      options: ['some', 'an', 'many'],
-      answer: 'some',
-      explain: '"Advice" is uncountable in English — use "some advice" or "a piece of advice".',
-    ),
-    (
-      question: '"Had we verified the source earlier, we _____ avoided that error."',
-      options: ['would have', 'will have', 'would'],
-      answer: 'would have',
-      explain: 'Third conditional ("Had + subject + past participle") pairs with "would have + past participle".',
-    ),
-    (
-      question: '"Neither the agronomist nor the engineers _____ ready to compromise on quality."',
-      options: ['were', 'was', 'is'],
-      answer: 'were',
-      explain: 'With "neither... nor...", the verb agrees with the nearest plural subject ("engineers").',
-    ),
-  ];
-
-  static const _vocabDrills = [
-    (
-      prompt: 'Quel synonyme exprime le mieux « steady persistence » ?',
-      options: ['Steadfastness', 'Hesitation', 'Fragmentation'],
-      answer: 'Steadfastness',
-      note: 'Steadfastness = ferme constance.',
-    ),
-    (
-      prompt: 'Quel terme signifie « careful moral or intellectual judgment » ?',
-      options: ['Discernment', 'Complacency', 'Ambiguity'],
-      answer: 'Discernment',
-      note: 'Discernment = discernement rigoureux.',
-    ),
-    (
-      prompt: 'Quel adjectif décrit un propos « clearly structured & easy to follow » ?',
-      options: ['Coherent', 'Arbitrary', 'Obscure'],
-      answer: 'Coherent',
-      note: 'Coherent = cohérent et structuré.',
-    ),
-    (
-      prompt: 'Quel mot désigne « composure under difficult pressure » ?',
-      options: ['Equanimity', 'Impulsiveness', 'Confusion'],
-      answer: 'Equanimity',
-      note: 'Equanimity = sérénité et maîtrise de soi.',
-    ),
-    (
-      prompt: 'Quel verbe signifie « combine multiple sources into one clear summary » ?',
-      options: ['Synthesize', 'Scatter', 'Omit'],
-      answer: 'Synthesize',
-      note: 'Synthesize = synthétiser des sources vérifiées.',
-    ),
-  ];
+  String get _activeLocale =>
+      _voiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US';
 
   @override
   void initState() {
     super.initState();
-    _loadCompletedSteps();
-    _resetAmyScenario(0, speakNow: false);
+    _loadProgress();
+    _startTopic(0, speakNow: false);
   }
 
-  void _speakAsAmy(
+  @override
+  void dispose() {
+    _chatInputCtrl.dispose();
+    _chatScrollCtrl.dispose();
+    _dictCtrl.dispose();
+    if (_listening) SpeechBridge.stopDictation();
+    SpeechBridge.stopSpeaking();
+    super.dispose();
+  }
+
+  Future<void> _loadProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedLessons = prefs.getStringList(_completedLessonsPrefKey);
+    final savedCefr = prefs.getString(_cefrPrefKey);
+    if (!mounted) return;
+    setState(() {
+      if (savedLessons != null) _completedLessonIds = savedLessons.toSet();
+      if (savedCefr != null &&
+          EnglishOpenSourceService.cefrLevelsOrdered.contains(savedCefr)) {
+        _cefr = savedCefr;
+      }
+    });
+  }
+
+  Future<void> _saveCefr(String level) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cefrPrefKey, level);
+  }
+
+  Future<void> _toggleLessonCompleted(String lessonId) async {
+    final next = Set<String>.from(_completedLessonIds);
+    if (next.contains(lessonId)) {
+      next.remove(lessonId);
+    } else {
+      next.add(lessonId);
+    }
+    setState(() => _completedLessonIds = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_completedLessonsPrefKey, next.toList());
+  }
+
+  void _speakFluid(
     String text, {
-    int? messageIdx,
+    int? msgIdx,
     double? overrideRate,
-    String? bundledAssetPath,
   }) {
-    final effectiveLocale =
-        _amyVoiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US';
     SpeechBridge.speak(
       text,
-      locale: effectiveLocale,
-      rate: overrideRate ?? _amyRate,
+      locale: _activeLocale,
+      rate: overrideRate ?? _speechRate,
       preferFemale: true,
-      voiceProfile: _amyVoiceProfile,
-      bundledAssetPath: bundledAssetPath,
+      voiceProfile: _voiceProfile,
       onSpeakingChanged: (speaking) {
         if (!mounted) return;
         setState(() {
           _amySpeaking = speaking;
           if (!speaking) {
-            _speakingMessageIdx = null;
+            _speakingMsgIdx = null;
             _speakingWordIdx = -1;
           } else {
-            _speakingMessageIdx = messageIdx;
+            _speakingMsgIdx = msgIdx;
           }
         });
       },
       onWordIndex: (wordIdx) {
         if (!mounted) return;
         setState(() {
-          _speakingMessageIdx = messageIdx;
+          _speakingMsgIdx = msgIdx;
           _speakingWordIdx = wordIdx;
         });
-      },
-      onEngineUsed: (engine) {
-        if (!mounted) return;
-        setState(() => _amyVoiceEngineLabel = engine);
       },
     );
   }
 
-  Future<void> _tapWordInAmyMessage(String rawWord) async {
+  void _startTopic(int index, {bool speakNow = true}) {
+    final topics = EnglishLearnaCurriculum.naturalTopics;
+    final topic = topics[index.clamp(0, topics.length - 1)];
+    SpeechBridge.stopSpeaking();
+    setState(() {
+      _topicIdx = index.clamp(0, topics.length - 1);
+      _customLessonTopic = null;
+      _showHelpDrawer = false;
+      _tappedWord = null;
+      _tappedWordDef = null;
+      _currentHints = topic.starterHintsEn;
+      _revealedTranslations.clear();
+      _messages
+        ..clear()
+        ..add(
+          _ChatBubble(
+            fromAmy: true,
+            englishText: topic.openingEn,
+            frenchTranslation: topic.openingFr,
+          ),
+        );
+    });
+    if (speakNow) {
+      _speakFluid(topic.openingEn, msgIdx: 0);
+    }
+  }
+
+  void _practiceLessonWithAmy(LearnaLesson lesson) {
+    final custom = LearnaTopic(
+      id: 'lesson_${lesson.id}',
+      titleFr: lesson.titleFr,
+      subtitleFr: 'Mise en pratique ${lesson.level}',
+      levelRange: lesson.level,
+      openingEn: lesson.amyPracticeOpeningEn,
+      openingFr: lesson.amyPracticeIntroFr,
+      followUpsEn: [
+        "That's a great example! Could you add one more detail using the same structure?",
+        "You're getting much more natural with this! How would you use that in your own daily life?",
+      ],
+      starterHintsEn: lesson.dialogue
+          .where((d) => d.speaker == 'You')
+          .map((d) => d.english)
+          .take(3)
+          .toList(),
+    );
+    SpeechBridge.stopSpeaking();
+    setState(() {
+      _cefr = lesson.level;
+      _customLessonTopic = custom;
+      _openLesson = null;
+      _activeTab = 0;
+      _showHelpDrawer = false;
+      _tappedWord = null;
+      _currentHints = custom.starterHintsEn;
+      _revealedTranslations.clear();
+      _messages
+        ..clear()
+        ..add(
+          _ChatBubble(
+            fromAmy: true,
+            englishText: custom.openingEn,
+            frenchTranslation: custom.openingFr,
+          ),
+        );
+    });
+    _saveCefr(lesson.level);
+    _speakFluid(custom.openingEn, msgIdx: 0);
+  }
+
+  Future<void> _tapWord(String rawWord) async {
     final clean = rawWord.replaceAll(RegExp(r"[^a-zA-Z'-]"), '').trim();
     if (clean.isEmpty) return;
-    _speakAsAmy(clean, overrideRate: 0.88);
+    _speakFluid(clean, overrideRate: 0.86);
     setState(() {
       _tappedWord = clean;
-      _tappedWordInfo = null;
+      _tappedWordDef = null;
       _tappedWordLoading = true;
     });
     try {
-      final entry = await _openDictService.lookupWord(clean.toLowerCase());
+      final entry = await _service.lookupWord(clean.toLowerCase());
       if (!mounted || _tappedWord != clean) return;
       if (entry != null && entry.meanings.isNotEmpty) {
         final def = entry.meanings.first.definitions.isNotEmpty
@@ -224,1675 +238,407 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         final phon = entry.phonetic.isNotEmpty ? '${entry.phonetic} • ' : '';
         setState(() {
           _tappedWordLoading = false;
-          _tappedWordInfo = '$phon${entry.meanings.first.partOfSpeech} : $def';
+          _tappedWordDef = '$phon$def';
         });
       } else {
         setState(() {
           _tappedWordLoading = false;
-          _tappedWordInfo = 'Mot prononcé par Amy. Cherchez-le dans l’onglet Dictionnaire pour plus d’exemples.';
+          _tappedWordDef = 'Mot prononcé par Amy.';
         });
       }
     } catch (_) {
       if (!mounted || _tappedWord != clean) return;
       setState(() {
         _tappedWordLoading = false;
-        _tappedWordInfo = 'Mot prononcé par Amy.';
+        _tappedWordDef = 'Mot prononcé par Amy.';
       });
     }
   }
 
-  void _resetAmyScenario(int index, {bool speakNow = true}) {
-    final scenarios = _allAmyScenarios;
-    final sc = scenarios[index.clamp(0, scenarios.length - 1)];
-    final opening = EnglishOpenSourceService.openingForLevel(sc, _cefr);
-    SpeechBridge.stopSpeaking();
-    setState(() {
-      _amyScenarioIdx = index.clamp(0, scenarios.length - 1);
-      _amyHints = sc.suggestedRepliesEn;
-      _shadowingTarget = null;
-      _shadowingEval = null;
-      _tappedWord = null;
-      _tappedWordInfo = null;
-      _revealedTranslations
-        ..clear()
-        ..add(0);
-      _amyMessages
-        ..clear()
-        ..add(
-          _AmyChatMessage(
-            fromAmy: true,
-            englishText: opening.en,
-            frenchNote: opening.fr,
-            bundledAssetPath: sc.openingAssetPath,
-          ),
-        );
-    });
-    if (speakNow && _amyAutoSpeak) {
-      _speakAsAmy(
-        opening.en,
-        messageIdx: 0,
-        bundledAssetPath: sc.openingAssetPath,
-      );
+  Future<void> _sendMessage(String raw) async {
+    final text = raw.trim();
+    if (text.isEmpty || _amyBusy) return;
+    if (_listening) {
+      SpeechBridge.stopDictation();
+      _listening = false;
     }
+
+    final topic = _activeTopic;
+    final history = _messages
+        .map((m) => (fromAmy: m.fromAmy, text: m.englishText))
+        .toList();
+    final userTurns = _messages.where((m) => !m.fromAmy).length;
+    final userBubbleIdx = _messages.length;
+
+    setState(() {
+      _messages.add(_ChatBubble(fromAmy: false, englishText: text));
+      _chatInputCtrl.clear();
+      _showHelpDrawer = false;
+      _amyBusy = true;
+    });
+    _scrollChatToBottom();
+
+    final reply = await _service.converseWithAmy(
+      userInput: text,
+      scenario: topic.toAmyScenario(),
+      turnIndex: userTurns,
+      variant: _activeLocale,
+      cefrLevel: _cefr,
+      history: history,
+    );
+    if (!mounted) return;
+
+    final amyMsgIdx = _messages.length;
+    setState(() {
+      _amyBusy = false;
+      // Attache le feedback Learna AI proprement sous la bulle de l'utilisateur
+      _messages[userBubbleIdx] = _messages[userBubbleIdx].copyWith(
+        correctedText: reply.correctedText,
+        coachingTipFr: reply.correctionNote,
+        nativeUpgrade: reply.nativeUpgrade,
+        fluencyScore: reply.fluencyScore,
+      );
+      if (reply.fluencyScore > 0) {
+        _turnScores.add(reply.fluencyScore);
+        if (reply.fluencyScore >= 80) _solidTurnsAtLevel++;
+      }
+      if (reply.suggestedRepliesEn.isNotEmpty) {
+        _currentHints = reply.suggestedRepliesEn;
+      }
+      _messages.add(
+        _ChatBubble(
+          fromAmy: true,
+          englishText: reply.amySpeechEn,
+          frenchTranslation: reply.amyTranslationFr,
+        ),
+      );
+    });
+    _scrollChatToBottom();
+    _speakFluid(reply.amySpeechEn, msgIdx: amyMsgIdx);
   }
 
-  void _promoteToNextCefr() {
+  void _scrollChatToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_chatScrollCtrl.hasClients) {
+        _chatScrollCtrl.animateTo(
+          _chatScrollCtrl.position.maxScrollExtent + 140,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _levelUpCefr() {
     final next = EnglishOpenSourceService.nextCefrLevel(_cefr);
     if (next == null) return;
     setState(() {
       _cefr = next;
       _solidTurnsAtLevel = 0;
     });
-    final celebEn =
-        "Congratulations! You have unlocked CEFR level $next! From now on, I will adapt my vocabulary and questions to help you master $next English. What topic shall we explore next?";
-    final msgIdx = _amyMessages.length;
+    _saveCefr(next);
+    const msgFr =
+        'Bravo ! Amy adapte maintenant ses questions et expressions à votre nouveau niveau.';
+    final msgEn =
+        "Awesome job — you've just moved up to level $next! I'll naturally step up our conversation from here. What would you like to talk about next?";
+    final idx = _messages.length;
     setState(() {
-      _amyMessages.add(
-        _AmyChatMessage(
+      _messages.add(
+        _ChatBubble(
           fromAmy: true,
-          englishText: celebEn,
-          frenchNote:
-              'Bravo ! Vous passez au niveau $next. Amy adapte désormais son vocabulaire et ses relances à votre nouveau palier.',
-          usedLiveAi: true,
-          estimatedCefr: next,
-        ),
-      );
-      _revealedTranslations.add(msgIdx);
-    });
-    if (_amyAutoSpeak) {
-      _speakAsAmy(celebEn, messageIdx: msgIdx);
-    }
-  }
-
-  Future<void> _sendToAmy(String rawText) async {
-    final text = rawText.trim();
-    if (text.isEmpty || _amyBusy) return;
-    if (_amyListening) {
-      SpeechBridge.stopDictation();
-      _amyListening = false;
-    }
-
-    // Si l'utilisateur est en mode Répéter (Shadowing), évalue d'abord sa prononciation mot par mot !
-    if (_shadowingTarget != null) {
-      final eval = EnglishOpenSourceService.evaluateShadowing(
-        targetSentence: _shadowingTarget!,
-        spokenText: text,
-      );
-      setState(() {
-        _shadowingEval = eval;
-        _amyInputCtrl.clear();
-      });
-      return;
-    }
-
-    final scenarios = _allAmyScenarios;
-    final sc = scenarios[_amyScenarioIdx.clamp(0, scenarios.length - 1)];
-    final userTurns = _amyMessages.where((m) => !m.fromAmy).length;
-    final historySnapshot = _amyMessages
-        .map((m) => (fromAmy: m.fromAmy, text: m.englishText))
-        .toList();
-
-    setState(() {
-      _amyMessages.add(_AmyChatMessage(fromAmy: false, englishText: text));
-      _amyInputCtrl.clear();
-      _amyBusy = true;
-    });
-    final reply = await _openDictService.converseWithAmy(
-      userInput: text,
-      scenario: sc,
-      turnIndex: userTurns,
-      variant: _amyVoiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US',
-      cefrLevel: _cefr,
-      history: historySnapshot,
-    );
-    if (!mounted) return;
-    final newMsgIndex = _amyMessages.length;
-    setState(() {
-      _amyBusy = false;
-      if (reply.fluencyScore > 0) {
-        _amyTurnScores.add(reply.fluencyScore);
-        if (reply.fluencyScore >= 80) {
-          _solidTurnsAtLevel++;
-        }
-      }
-      _lastEstimatedCefr = reply.estimatedCefr;
-      if (reply.suggestedRepliesEn.isNotEmpty) {
-        _amyHints = reply.suggestedRepliesEn;
-      }
-      _amyMessages.add(
-        _AmyChatMessage(
-          fromAmy: true,
-          englishText: reply.amySpeechEn,
-          frenchNote: reply.amyTranslationFr,
-          correctionNote: reply.correctionNote,
-          correctedText: reply.correctedText,
-          nativeUpgrade: reply.nativeUpgrade,
-          fluencyScore: reply.fluencyScore,
-          estimatedCefr: reply.estimatedCefr,
-          usedLiveAi: reply.usedLiveAi,
+          englishText: msgEn,
+          frenchTranslation: msgFr,
         ),
       );
     });
-    if (_amyAutoSpeak) {
-      _speakAsAmy(reply.amySpeechEn, messageIdx: newMsgIndex);
-    }
+    _scrollChatToBottom();
+    _speakFluid(msgEn, msgIdx: idx);
   }
 
-  Future<void> _loadCompletedSteps() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList(_stepsPrefKey);
-    if (saved != null && mounted) {
-      setState(() => _completedStepIds = saved.toSet());
-    }
-  }
-
-  Future<void> _toggleStepCompleted(String stepId) async {
-    final next = Set<String>.from(_completedStepIds);
-    if (next.contains(stepId)) {
-      next.remove(stepId);
-    } else {
-      next.add(stepId);
-    }
-    setState(() => _completedStepIds = next);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_stepsPrefKey, next.toList());
-  }
-
-  Future<void> _performDictionaryLookup(String queryWord) async {
-    final clean = queryWord.trim();
+  Future<void> _lookupDictionary(String query) async {
+    final clean = query.trim();
     if (clean.isEmpty) return;
     setState(() {
-      _lookingUpDict = true;
+      _searchingWord = true;
       _dictError = null;
     });
     try {
-      final entry = await _openDictService.lookupWord(clean);
-      if (!mounted) return;
-      if (entry == null) {
-        setState(() {
-          _lookingUpDict = false;
-          _dictEntry = null;
-          _dictError =
-              'Mot « $clean » introuvable dans Free Dictionary API ou connexion hors ligne.';
-        });
-      } else {
-        setState(() {
-          _lookingUpDict = false;
-          _dictEntry = entry;
-        });
-      }
-    } catch (e) {
+      final entry = await _service.lookupWord(clean);
       if (!mounted) return;
       setState(() {
-        _lookingUpDict = false;
-        _dictError =
-            'API dictionnaire open-source momentanément inaccessible ($e). Consultez la banque hors ligne ci-dessous.';
+        _searchingWord = false;
+        _dictEntry = entry;
+        _dictError = entry == null ? 'Mot « $clean » introuvable.' : null;
       });
-    }
-  }
-
-  Future<void> _runLanguageToolCheck() async {
-    final text = _ltCheckCtrl.text.trim();
-    if (text.isEmpty) return;
-    setState(() => _checkingLt = true);
-    final res = await _openDictService.checkGrammarLive(text, language: _variant);
-    if (mounted) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
-        _checkingLt = false;
-        _ltResult = res;
+        _searchingWord = false;
+        _dictError = 'Recherche indisponible hors ligne.';
       });
     }
-  }
-
-  Future<void> _askCoach(String query) async {
-    final clean = query.trim();
-    if (clean.isEmpty) return;
-    setState(() => _coachLoading = true);
-    final reply = await _openDictService.askEnglishCoachLive(
-      input: clean,
-      variant: _variant,
-      cefrLevel: _cefr,
-    );
-    if (mounted) {
-      setState(() {
-        _coachLoading = false;
-        _coachReply = reply;
-      });
-    }
-  }
-
-  Future<void> _playOpenDictPronunciation(
-    AudioService audio,
-    OpenDictionaryEntry entry,
-  ) async {
-    final audioUrl = entry.preferredAudioFor(_variant);
-    if (audioUrl != null && audioUrl.isNotEmpty) {
-      await audio.playFile(
-        audioUrl,
-        onError: (_) => _speakAsAmy(entry.word),
-      );
-      return;
-    }
-    _speakAsAmy(entry.word);
-  }
-
-  @override
-  void dispose() {
-    _speechCtrl.dispose();
-    _coachCtrl.dispose();
-    _amyInputCtrl.dispose();
-    _dictLookupCtrl.dispose();
-    _ltCheckCtrl.dispose();
-    _vocabSearchCtrl.dispose();
-    if (_amyListening) SpeechBridge.stopDictation();
-    SpeechBridge.stopSpeaking();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
     final eco = ref.watch(ecosystemProvider);
     final audio = ref.watch(audioServiceProvider);
-    final activeStage = EnglishOpenSourceService.curriculum.firstWhere(
-      (m) => m.level == _cefr,
-      orElse: () => EnglishOpenSourceService.curriculum[2],
-    );
-    final activeCourse = EnglishOpenSourceService.courseForLevel(_cefr);
-
-    final dailyPool = eco.dailyVocab.where((w) => w.cefrLevel == _cefr).toList();
-    final featuredDaily5 =
-        (dailyPool.length >= 5 ? dailyPool : eco.dailyVocab).take(5).toList();
-    final masteredCount = eco.dailyVocab.where((w) => w.mastered).length;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('YITTÉ ENGLISH CLUB')),
-      body: YitteAuroraBackdrop(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            const YitteReveal(
-              order: 0,
-              child: EditorialHeroBanner(
-                eyebrow: 'PROGRAMME RIGOUREUX A1–C2 • PRATIQUE ORALE AVEC AMY',
-                accentColor: YitteDomainAccents.english,
-                title: 'Maîtrise de l’Anglais — 12 Semaines',
-                subtitle:
-                    'Parlez en direct avec Amy (voix féminine UK/US), suivez le plan d’étude 4 compétences (Listening · Speaking · Reading · Writing), le correcteur LanguageTool et le dictionnaire complet MIT.',
-              ),
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<int>(
-              showSelectedIcon: false,
-              style: SegmentedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
-              ),
-              segments: const [
-                ButtonSegment(value: 0, label: Text('Pratique')),
-                ButtonSegment(value: 1, label: Text('Amy (Oral)')),
-                ButtonSegment(value: 2, label: Text('Dictionnaire')),
-                ButtonSegment(value: 3, label: Text('Programme A1–C2')),
-              ],
-              selected: {_activeTab},
-              onSelectionChanged: (s) {
-                setState(() => _activeTab = s.first);
-                if (s.first == 2 && _dictEntry == null && !_lookingUpDict) {
-                  _performDictionaryLookup(_dictLookupCtrl.text);
-                }
-              },
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _variant,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'Variante'),
-                    items: const [
-                      DropdownMenuItem(value: 'en-GB', child: Text('British (en-GB)')),
-                      DropdownMenuItem(value: 'en-US', child: Text('American (en-US)')),
-                    ],
-                    onChanged: (v) => setState(() {
-                      _variant = v ?? 'en-GB';
-                      _amyVoiceProfile =
-                          _variant == 'en-GB' ? 'amy-soft-uk' : 'amy-fluent-us';
-                    }),
+      backgroundColor: tokens.canvas,
+      appBar: AppBar(
+        title: const Text('ENGLISH STUDIO'),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Changer votre niveau d’anglais',
+            onSelected: (lvl) {
+              setState(() {
+                _cefr = lvl;
+                _solidTurnsAtLevel = 0;
+              });
+              _saveCefr(lvl);
+            },
+            itemBuilder: (context) => EnglishOpenSourceService.cefrLevelsOrdered
+                .map(
+                  (lvl) => PopupMenuItem<String>(
+                    value: lvl,
+                    child: Text(
+                      'Niveau $lvl${lvl == _cefr ? " ✓" : ""}',
+                      style: TextStyle(
+                        fontWeight:
+                            lvl == _cefr ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _cefr,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'Niveau CEFR'),
-                    items: const ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
-                        .map((l) => DropdownMenuItem(value: l, child: Text(l)))
-                        .toList(),
-                    onChanged: (v) {
-                      final nextLvl = v ?? 'B1';
-                      setState(() {
-                        _cefr = nextLvl;
-                        _solidTurnsAtLevel = 0;
-                      });
-                      if (_amyMessages.where((m) => !m.fromAmy).isEmpty) {
-                        _resetAmyScenario(_amyScenarioIdx, speakNow: false);
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            if (_activeTab == 0)
-              ..._buildPracticeAndDailyTab(
-                context,
-                eco,
-                audio,
-                activeStage,
-                activeCourse,
-                featuredDaily5,
-                masteredCount,
-              )
-            else if (_activeTab == 1)
-              ..._buildAmyConversationTab(context)
-            else if (_activeTab == 2)
-              ..._buildOpenDictionaryTab(context, eco, audio, masteredCount)
-            else
-              ..._buildStructuredCurriculumTab(context, activeCourse),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<Widget> _buildPracticeAndDailyTab(
-    BuildContext context,
-    EcosystemState eco,
-    AudioService audio,
-    CefrStageModule activeStage,
-    ConcreteEnglishCourse activeCourse,
-    List<dynamic> featuredDaily5,
-    int masteredCount,
-  ) {
-    final stageDone = activeStage.orderedSteps
-        .asMap()
-        .keys
-        .where((i) => _completedStepIds.contains('${activeStage.level}_$i'))
-        .length;
-
-    return [
-      // Accès direct à Amy (Discussion IA vocale adaptée au niveau CEFR — compact)
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: YitteColors.emerald,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: YitteColors.gold, width: 1),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
+                )
+                .toList(),
+            child: Container(
+              margin: const EdgeInsets.only(right: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: YitteColors.gold,
-                border: Border.all(color: YitteColors.ivory, width: 1),
+                color: YitteColors.emerald,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: YitteColors.gold, width: 1),
               ),
-              child: const Center(
-                child: Text(
-                  'A',
-                  style: TextStyle(
-                    fontFamily: YitteFonts.display,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                    color: YitteColors.inkDark,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Discuter avec Amy (IA • $_cefr)',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    'Niveau $_cefr',
                     style: const TextStyle(
                       color: YitteColors.ivory,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13.5,
-                    ),
-                  ),
-                  Text(
-                    'Discussion libre • Voix fluide • Cap $_cefr→${EnglishOpenSourceService.nextCefrLevel(_cefr) ?? "C2"}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: YitteColors.ivory.withValues(alpha: 0.82),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 6),
-            IconButton(
-              tooltip: 'Parler au micro avec Amy',
-              visualDensity: VisualDensity.compact,
-              onPressed: () {
-                setState(() => _activeTab = 1);
-                SpeechBridge.stopSpeaking();
-                final started = SpeechBridge.startDictation(
-                  locale: _amyVoiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US',
-                  onTranscript: (t) {
-                    if (!mounted) return;
-                    setState(() => _amyInputCtrl.text = t);
-                  },
-                  onError: (err) {
-                    if (!mounted) return;
-                    setState(() => _amyListening = false);
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(content: Text(err)));
-                  },
-                );
-                if (started) setState(() => _amyListening = true);
-              },
-              icon: const Icon(Icons.mic_rounded, color: YitteColors.gold, size: 20),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: YitteColors.gold,
-                foregroundColor: YitteColors.inkDark,
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              ),
-              onPressed: () {
-                setState(() => _activeTab = 1);
-                if (_amyAutoSpeak && _amyMessages.isNotEmpty) {
-                  final lastIdx =
-                      _amyMessages.lastIndexWhere((m) => m.fromAmy);
-                  if (lastIdx >= 0) {
-                    final m = _amyMessages[lastIdx];
-                    _speakAsAmy(
-                      m.englishText,
-                      messageIdx: lastIdx,
-                      bundledAssetPath: m.bundledAssetPath,
-                    );
-                  }
-                }
-              },
-              child: const Text('Discuter →'),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 10),
-      YitteSurfaceCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        onTap: () => setState(() => _activeTab = 3),
-        child: Row(
-          children: [
-            const YitteIconBadge(
-              icon: Icons.menu_book_outlined,
-              color: YitteDomainAccents.english,
-              size: 38,
-              iconSize: 19,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    activeCourse.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                  ),
-                  Text(
-                    '$stageDone/${activeStage.orderedSteps.length} étapes • Programme 12 semaines A1→C2',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 11.5),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right_rounded),
-          ],
-        ),
-      ),
-      const SizedBox(height: 12),
-      SectionHeader(
-        title: 'A. 5 Mots Quotidiens',
-        actionLabel: 'Dictionnaire Complet',
-        onAction: () {
-          setState(() => _activeTab = 2);
-          if (_dictEntry == null && !_lookingUpDict) {
-            _performDictionaryLookup(_dictLookupCtrl.text);
-          }
-        },
-      ),
-      const SizedBox(height: 8),
-      ...featuredDaily5.map(
-        (w) => YitteSurfaceCard(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${w.word} (${w.partOfSpeech})',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                YitteStatusPill(label: w.cefrLevel),
-              ],
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 2, bottom: 4),
-                  child: Text(
-                    _variant == 'en-GB' ? w.phoneticUk : w.phoneticUs,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ),
-                Text(
-                  '${w.definitionEn}\nFR : ${w.definitionFr}\nEx : "${w.exampleEn}"',
-                ),
-              ],
-            ),
-            isThreeLine: false,
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: 'Écouter la prononciation ($_variant)',
-                  icon: const Icon(Icons.volume_up_rounded),
-                  onPressed: () => _speakAsAmy('${w.word}. ${w.exampleEn}'),
-                ),
-                IconButton(
-                  tooltip: w.mastered
-                      ? 'Maîtrisé ($masteredCount/${eco.dailyVocab.length})'
-                      : 'Marquer comme acquis',
-                  icon: Icon(
-                    w.mastered
-                        ? Icons.check_circle_rounded
-                        : Icons.check_circle_outline_rounded,
-                    color: w.mastered ? YitteColors.success : null,
+                  const SizedBox(width: 2),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 16,
+                    color: YitteColors.gold,
                   ),
-                  onPressed: () => ref
-                      .read(ecosystemProvider.notifier)
-                      .toggleVocabMastered(w.id),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      const SizedBox(height: 18),
-      const SectionHeader(title: 'B, D, J. Pratique Orale & Évaluation IA (100 pts)'),
-      const SizedBox(height: 8),
-      ConsentVoiceRecorderCard(
-        audioService: audio,
-        prefix: 'english_club',
-        consentGranted: _consent,
-        speechLocale: _variant,
-        onConsentChanged: (v) => setState(() => _consent = v),
-        onLiveTranscript: (t) => setState(() => _speechCtrl.text = t),
-        onRecorded: (path, sec) {
-          if (path != null && _speechCtrl.text.trim().isEmpty && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Audio enregistré (${sec}s). Réécoutez ou saisissez/dictez le texte à évaluer.',
-                ),
-              ),
-            );
-          }
-        },
-      ),
-      const SizedBox(height: 10),
-      TextField(
-        controller: _speechCtrl,
-        maxLines: 3,
-        decoration: const InputDecoration(
-          labelText: 'Votre prise de parole en anglais (transcript / exercice)',
-          hintText: 'Speak or enter your English response...',
-        ),
-      ),
-      const SizedBox(height: 10),
-      ElevatedButton.icon(
-        onPressed: _busy
-            ? null
-            : () async {
-                if (_speechCtrl.text.trim().isEmpty) return;
-                setState(() => _busy = true);
-                await ref.read(ecosystemProvider.notifier).evaluateEnglishSpeech(
-                      prompt: activeStage.oralTask,
-                      transcript: _speechCtrl.text.trim(),
-                      variant: _variant,
-                      cefrLevel: _cefr,
-                    );
-                if (mounted) setState(() => _busy = false);
-              },
-        icon: const Icon(Icons.auto_fix_high_rounded),
-        label: const Text('Analyser avec YITTE_ENGLISH_COACH'),
-      ),
-      if (eco.lastEnglishEval != null) ...[
-        const SizedBox(height: 12),
-        YitteSurfaceCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Score Global : ${eco.lastEnglishEval!.totalScore.toStringAsFixed(0)} / 100',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 10),
-              RubricBar(label: 'Grammar', score: eco.lastEnglishEval!.grammar, maxScore: 20),
-              RubricBar(label: 'Vocabulary', score: eco.lastEnglishEval!.vocabulary, maxScore: 20),
-              RubricBar(label: 'Fluency', score: eco.lastEnglishEval!.fluency, maxScore: 20),
-              RubricBar(
-                label: 'Intelligibility (Accent-Fair)',
-                score: eco.lastEnglishEval!.intelligibility,
-                maxScore: 20,
-              ),
-              RubricBar(label: 'Coherence', score: eco.lastEnglishEval!.coherence, maxScore: 20),
-              ...eco.lastEnglishEval!.correctedSentences.map(
-                (s) => Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text('✓ $s')),
-                      IconButton(
-                        tooltip: 'Écouter la phrase corrigée',
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.volume_up_rounded, size: 18),
-                        onPressed: () => _speakAsAmy(s),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              ...eco.lastEnglishEval!.naturalExpressions
-                  .map((e) => Text('• Natural expression: $e')),
-              if (eco.lastEnglishEval!.suggestedVocabulary.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: eco.lastEnglishEval!.suggestedVocabulary
-                      .map((w) => Chip(label: Text(w)))
-                      .toList(),
-                ),
-              ],
-              if (eco.lastEnglishEval!.exercises.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Text(
-                  'Exercices personnalisés :',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                ...eco.lastEnglishEval!.exercises.map(
-                  (ex) => Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
-                    child: Text('→ $ex', style: const TextStyle(fontSize: 13)),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-      const SizedBox(height: 18),
-      const SectionHeader(title: 'C. AI English Coach & F. Grammaire'),
-      const SizedBox(height: 8),
-      YitteSurfaceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Quiz Rapide (${_grammarIdx + 1}/${_grammarDrills.length}) : ${_grammarDrills[_grammarIdx].question}',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => setState(() {
-                    _grammarIdx = (_grammarIdx + 1) % _grammarDrills.length;
-                    _grammarFeedback = '';
-                  }),
-                  child: const Text('Suivant'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: _grammarDrills[_grammarIdx].options.map((opt) {
-                return ActionChip(
-                  label: Text(opt),
-                  onPressed: () {
-                    final d = _grammarDrills[_grammarIdx];
-                    setState(() {
-                      _grammarFeedback = opt == d.answer
-                          ? 'Correct ! ${d.explain}'
-                          : 'Pas tout à fait. ${d.explain}';
-                    });
-                  },
-                );
-              }).toList(),
-            ),
-            if (_grammarFeedback.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(_grammarFeedback,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-            ],
-          ],
-        ),
-      ),
-      const SizedBox(height: 12),
-      YitteSurfaceCard(
-        borderColor: YitteDomainAccents.english.withValues(alpha: 0.3),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const YitteIconBadge(
-                  icon: Icons.school_rounded,
-                  color: YitteDomainAccents.english,
-                  size: 38,
-                  iconSize: 19,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Coach Anglais Interactif (LanguageTool Open-Source)',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        'Collez une phrase anglaise à corriger en direct OU cliquez sur une leçon rapide :',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _coachQuickTopics
-                  .map(
-                    (topic) => ActionChip(
-                      label: Text(topic, style: const TextStyle(fontSize: 12)),
-                      onPressed: () {
-                        _coachCtrl.text = topic;
-                        _askCoach(topic);
-                      },
-                    ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _coachCtrl,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Poser une question à YITTE_ENGLISH_COACH ou coller un texte EN à corriger',
-                hintText: 'Ex. "For vs Since" ou "Yesterday I have went to the meeting and discuss about..."',
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: _coachLoading ? null : () => _askCoach(_coachCtrl.text),
-              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-              label: Text(_coachLoading ? 'Analyse en cours...' : 'Demander au Coach'),
-            ),
-            if (_coachReply != null) ...[
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: YitteDomainAccents.english.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: YitteDomainAccents.english.withValues(alpha: 0.25),
-                  ),
-                ),
-                child: Text(_coachReply!, style: const TextStyle(height: 1.48)),
-              ),
-            ],
-          ],
-        ),
-      ),
-      const SizedBox(height: 18),
-      const SectionHeader(title: 'G, H, I. Débats Anglais, Salles CEFR & Vocab Battle'),
-      const SizedBox(height: 8),
-      YitteSurfaceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Vocabulary Battle ($_cefr • $_vocabXp XP) : ${_vocabDrills[_vocabIdx].prompt}',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => setState(() {
-                    _vocabIdx = (_vocabIdx + 1) % _vocabDrills.length;
-                    _vocabFeedback = '';
-                  }),
-                  child: const Text('Mot suivant'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: _vocabDrills[_vocabIdx]
-                  .options
-                  .map(
-                    (word) => ActionChip(
-                      label: Text(word),
-                      onPressed: () {
-                        final v = _vocabDrills[_vocabIdx];
-                        _speakAsAmy(word);
-                        setState(() {
-                          if (word == v.answer) {
-                            _vocabXp += 25;
-                            _vocabFeedback = '+25 XP ! ${v.note}';
-                          } else {
-                            _vocabFeedback = 'Indications : ${v.note}';
-                          }
-                        });
-                      },
-                    ),
-                  )
-                  .toList(),
-            ),
-            if (_vocabFeedback.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                _vocabFeedback,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ],
-        ),
-      ),
-      const SizedBox(height: 10),
-      const SectionHeader(title: 'E, J. Leçons & Défi Oral de la Semaine'),
-      const SizedBox(height: 8),
-      ...eco.englishLessons.map(
-        (l) => YitteSurfaceCard(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(l.title, style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text('${l.cefrLevel} • ${l.variant}\n${l.contentMarkdown}'),
-            isThreeLine: true,
-          ),
-        ),
-      ),
-    ];
-  }
-
-  List<Widget> _buildOpenDictionaryTab(
-    BuildContext context,
-    EcosystemState eco,
-    AudioService audio,
-    int masteredCount,
-  ) {
-    final q = _vocabQuery.trim().toLowerCase();
-    final filteredVocab = eco.dailyVocab.where((w) {
-      final levelOk = _vocabCefrFilter == 'Tous' || w.cefrLevel == _vocabCefrFilter;
-      if (!levelOk) return false;
-      if (q.isEmpty) return true;
-      return w.word.toLowerCase().contains(q) ||
-          w.definitionFr.toLowerCase().contains(q) ||
-          w.definitionEn.toLowerCase().contains(q);
-    }).toList();
-
-    return [
-      const SectionHeader(title: 'Dictionnaire Open-Source en direct (Free Dictionary API / Wiktionary)'),
-      const SizedBox(height: 8),
-      Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _dictLookupCtrl,
-              onSubmitted: _performDictionaryLookup,
-              decoration: const InputDecoration(
-                labelText: 'Rechercher n’importe quel mot anglais',
-                hintText: 'ex. agronomy, resilience, algorithm, methodology...',
-                prefixIcon: Icon(Icons.menu_book_rounded),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            onPressed: _lookingUpDict
-                ? null
-                : () => _performDictionaryLookup(_dictLookupCtrl.text),
-            icon: const Icon(Icons.search_rounded),
-            label: const Text('Chercher'),
           ),
         ],
       ),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: ['resilience', 'agronomy', 'integrity', 'hypothesis', 'catalyst']
-            .map(
-              (sample) => ActionChip(
-                label: Text(sample),
-                onPressed: () {
-                  _dictLookupCtrl.text = sample;
-                  _performDictionaryLookup(sample);
-                },
+      body: Column(
+        children: [
+          // Barre 3 onglets épurée (façon Learna AI : Discuter • Cours • Vocabulaire)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: tokens.elevated,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: tokens.borderSubtle),
               ),
-            )
-            .toList(),
-      ),
-      if (_lookingUpDict)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 14),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      if (_dictError != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Text(_dictError!, style: const TextStyle(color: YitteColors.danger)),
-        ),
-      if (_dictEntry != null)
-        YitteSurfaceCard(
-          margin: const EdgeInsets.only(top: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${_dictEntry!.word}  ${_dictEntry!.phonetic}',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: () =>
-                        _playOpenDictPronunciation(audio, _dictEntry!),
-                    icon: const Icon(Icons.volume_up_rounded),
-                    label: Text(
-                      _dictEntry!.preferredAudioFor(_variant) != null
-                          ? 'Audio natif ($_variant)'
-                          : 'Synthèse vocale',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ..._dictEntry!.meanings.map(
-                (m) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      YitteStatusPill(label: m.partOfSpeech),
-                      const SizedBox(height: 4),
-                      ...m.definitions.map(
-                        (def) => Padding(
-                          padding: const EdgeInsets.only(bottom: 3),
-                          child: Text('• $def', style: const TextStyle(fontSize: 13.5)),
-                        ),
-                      ),
-                      if (m.examples.isNotEmpty)
-                        Text(
-                          'Ex : "${m.examples.first}"',
-                          style: const TextStyle(
-                            fontStyle: FontStyle.italic,
-                            fontSize: 12.5,
-                          ),
-                        ),
-                      if (m.synonyms.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Synonymes : ${m.synonyms.join(", ")}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      const SizedBox(height: 18),
-      const SectionHeader(title: 'Correcteur Grammatical Open-Source (LanguageTool LGPL en direct)'),
-      const SizedBox(height: 8),
-      YitteSurfaceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _ltCheckCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Écrivez ou collez un paragraphe anglais à vérifier',
-              ),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: _checkingLt ? null : _runLanguageToolCheck,
-              icon: const Icon(Icons.spellcheck_rounded),
-              label: Text(
-                _checkingLt ? 'Vérification LanguageTool...' : 'Corriger avec LanguageTool Open-Source',
-              ),
-            ),
-            if (_ltResult != null) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  YitteStatusPill(
-                    label: _ltResult!.usedOnlineApi
-                        ? 'LanguageTool en direct'
-                        : 'Moteur hors-ligne FR→EN',
-                  ),
-                  const SizedBox(width: 8),
-                  YitteStatusPill(
-                    label: '${_ltResult!.issues.length} remarque(s)',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '✅ ${_ltResult!.correctedText}',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Écouter la version corrigée',
-                    icon: const Icon(Icons.volume_up_rounded),
-                    onPressed: () => _speakAsAmy(_ltResult!.correctedText),
-                  ),
-                ],
-              ),
-              ..._ltResult!.issues.map(
-                (i) => Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    '• [${i.category}] "${i.badText}" → ${i.replacements.isNotEmpty ? i.replacements.join(" / ") : "(à revoir)"} : ${i.message}',
-                    style: const TextStyle(fontSize: 12.5),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-      const SizedBox(height: 18),
-      SectionHeader(
-        title: 'Lexique CEFR Essentiel ($masteredCount maîtrisé(s))',
-      ),
-      const SizedBox(height: 8),
-      TextField(
-        controller: _vocabSearchCtrl,
-        onChanged: (v) => setState(() => _vocabQuery = v),
-        decoration: InputDecoration(
-          hintText: 'Filtrer la banque locale (mot EN ou traduction FR)...',
-          prefixIcon: const Icon(Icons.filter_list_rounded),
-          suffixIcon: _vocabQuery.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear_rounded),
-                  onPressed: () {
-                    _vocabSearchCtrl.clear();
-                    setState(() => _vocabQuery = '');
-                  },
-                )
-              : null,
-        ),
-      ),
-      const SizedBox(height: 8),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: ['Tous', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2']
-              .map(
-                (lvl) => Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: ChoiceChip(
-                    label: Text(lvl),
-                    selected: _vocabCefrFilter == lvl,
-                    onSelected: (_) => setState(() => _vocabCefrFilter = lvl),
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-      ),
-      const SizedBox(height: 10),
-      ...filteredVocab.map(
-        (w) => YitteSurfaceCard(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${w.word} (${w.partOfSpeech})',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                YitteStatusPill(label: w.cefrLevel),
-              ],
-            ),
-            subtitle: Text(
-              '${_variant == "en-GB" ? w.phoneticUk : w.phoneticUs}\n${w.definitionEn}\nFR : ${w.definitionFr}',
-            ),
-            isThreeLine: true,
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.travel_explore_rounded),
-                  tooltip: 'Chercher sur Free Dictionary API',
-                  onPressed: () {
-                    _dictLookupCtrl.text = w.word;
-                    _performDictionaryLookup(w.word);
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.volume_up_rounded),
-                  onPressed: () => _speakAsAmy('${w.word}. ${w.exampleEn}'),
-                ),
-                IconButton(
-                  icon: Icon(
-                    w.mastered
-                        ? Icons.check_circle_rounded
-                        : Icons.check_circle_outline_rounded,
-                    color: w.mastered ? YitteColors.success : null,
-                  ),
-                  onPressed: () =>
-                      ref.read(ecosystemProvider.notifier).toggleVocabMastered(w.id),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ];
-  }
-
-  List<Widget> _buildStructuredCurriculumTab(
-    BuildContext context,
-    ConcreteEnglishCourse activeCourse,
-  ) {
-    final totalSteps = EnglishOpenSourceService.curriculum
-        .fold<int>(0, (sum, m) => sum + m.orderedSteps.length);
-    return [
-      YitteSurfaceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Procédure Complète A1 → C2',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${_completedStepIds.length} / $totalSteps étapes validées • Sélectionnez un niveau pour ouvrir le cours concret complet (règles, pièges FR→EN, dialogue audio et exercices).',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
               child: Row(
-                children: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
-                    .map(
-                      (lvl) => Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: ChoiceChip(
-                          label: Text('Cours $lvl'),
-                          selected: _cefr == lvl,
-                          onSelected: (_) => setState(() => _cefr = lvl),
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 14),
-      // CONCRETE INTERACTIVE COURSE FOR SELECTED LEVEL
-      YitteSurfaceCard(
-        borderColor: YitteDomainAccents.english.withValues(alpha: 0.4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                YitteStatusPill(label: 'COURS ${activeCourse.level}'),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    activeCourse.title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(activeCourse.summaryFr, style: Theme.of(context).textTheme.bodyMedium),
-            const Divider(height: 20),
-            const Text('1. Règles essentielles', style: TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            ...activeCourse.coreRules.map(
-              (r) => Padding(
-                padding: const EdgeInsets.only(bottom: 5),
-                child: Text('• $r', style: const TextStyle(fontSize: 13.5, height: 1.4)),
-              ),
-            ),
-            const Divider(height: 20),
-            const Text('2. Pièges francophones : À éviter vs Naturel',
-                style: TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            ...activeCourse.comparisons.map(
-              (row) => Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(row.avoid,
-                        style: const TextStyle(
-                            color: YitteColors.danger, fontWeight: FontWeight.w600, fontSize: 13)),
-                    Text(row.natural,
-                        style: const TextStyle(
-                            color: YitteColors.success, fontWeight: FontWeight.w700, fontSize: 13.5)),
-                    const SizedBox(height: 2),
-                    Text(row.explanationFr, style: const TextStyle(fontSize: 12)),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 20),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text('3. Dialogue concret (Audio)',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: () {
-                    final fullScript =
-                        activeCourse.dialogue.map((l) => l.english).join(' ');
-                    _speakAsAmy(fullScript);
-                  },
-                  icon: const Icon(Icons.volume_up_rounded, size: 18),
-                  label: const Text('Tout écouter'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...activeCourse.dialogue.map(
-              (line) => ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  '${line.speaker} : "${line.english}"',
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
-                ),
-                subtitle: Text(line.french, style: const TextStyle(fontSize: 12)),
-                trailing: IconButton(
-                  tooltip: 'Écouter cette réplique',
-                  icon: const Icon(Icons.play_circle_outline_rounded),
-                  onPressed: () => _speakAsAmy(line.english),
-                ),
-              ),
-            ),
-            const Divider(height: 20),
-            const Text('4. Exercices immédiats corrigés',
-                style: TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            ...activeCourse.exercises.asMap().entries.map((entry) {
-              final key = '${activeCourse.level}_${entry.key}';
-              final ex = entry.value;
-              final fb = _courseQuizFeedback[key];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(ex.question, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: ex.options
-                          .map(
-                            (opt) => ActionChip(
-                              label: Text(opt),
-                              onPressed: () {
-                                setState(() {
-                                  _courseQuizFeedback[key] = opt == ex.answer
-                                      ? '✅ Bravo ! ${ex.explanation}'
-                                      : '❌ Réponse attendue : "${ex.answer}". ${ex.explanation}';
-                                });
-                              },
-                            ),
-                          )
-                          .toList(),
-                    ),
-                    if (fb != null) ...[
-                      const SizedBox(height: 4),
-                      Text(fb, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                    ],
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-      const SizedBox(height: 14),
-      const SectionHeader(title: 'Programme Rigoureux — 12 Semaines (4 Compétences)'),
-      const SizedBox(height: 8),
-      ...EnglishOpenSourceService.twelveWeekMasteryPlan.map(
-        (phase) => YitteSurfaceCard(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
                 children: [
-                  YitteStatusPill(label: phase.phaseCode),
-                  const SizedBox(width: 6),
-                  YitteStatusPill(label: phase.cefr),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      phase.title,
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
+                  _StudioTabButton(
+                    icon: Icons.forum_outlined,
+                    label: 'Discuter',
+                    active: _activeTab == 0,
+                    onTap: () => setState(() => _activeTab = 0),
+                  ),
+                  _StudioTabButton(
+                    icon: Icons.school_outlined,
+                    label: 'Cours',
+                    active: _activeTab == 1,
+                    onTap: () => setState(() => _activeTab = 1),
+                  ),
+                  _StudioTabButton(
+                    icon: Icons.menu_book_outlined,
+                    label: 'Vocabulaire',
+                    active: _activeTab == 2,
+                    onTap: () => setState(() => _activeTab = 2),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                phase.dailyRoutineFr,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text('• Listening : ${phase.listeningGoal}',
-                  style: Theme.of(context).textTheme.bodySmall),
-              Text('• Speaking : ${phase.speakingGoal}',
-                  style: Theme.of(context).textTheme.bodySmall),
-              Text('• Reading : ${phase.readingGoal}',
-                  style: Theme.of(context).textTheme.bodySmall),
-              Text('• Writing : ${phase.writingGoal}',
-                  style: Theme.of(context).textTheme.bodySmall),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 14),
-      const SectionHeader(title: 'Feuille de route & Suivi par Palier (A1 → C2)'),
-      const SizedBox(height: 8),
-      ...EnglishOpenSourceService.curriculum.map(
-        (stage) => YitteSurfaceCard(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  YitteStatusPill(label: stage.level),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      stage.title,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(stage.objective, style: Theme.of(context).textTheme.bodyMedium),
-              const SizedBox(height: 6),
-              ...stage.orderedSteps.asMap().entries.map((entry) {
-                final stepId = '${stage.level}_${entry.key}';
-                return CheckboxListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  value: _completedStepIds.contains(stepId),
-                  onChanged: (_) => _toggleStepCompleted(stepId),
-                  title: Text(entry.value, style: const TextStyle(fontSize: 13)),
-                );
-              }),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonalIcon(
-                  onPressed: () {
-                    setState(() {
-                      _cefr = stage.level;
-                      _activeTab = 0;
-                    });
-                  },
-                  icon: const Icon(Icons.mic_rounded, size: 18),
-                  label: Text('Pratiquer l’oral ${stage.level}'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 14),
-      const SectionHeader(title: 'Verbes Irréguliers Clés (Base • Prétérit • Participe)'),
-      const SizedBox(height: 8),
-      YitteSurfaceCard(
-        child: Column(
-          children: EnglishOpenSourceService.irregularVerbs
-              .map(
-                (v) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    '${v.base}  →  ${v.past}  →  ${v.participle}',
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
-                  ),
-                  subtitle: Text(v.french),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.volume_up_rounded),
-                    onPressed: () =>
-                        _speakAsAmy('${v.base}, ${v.past}, ${v.participle}'),
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-      ),
-      const SizedBox(height: 14),
-      const SectionHeader(title: 'Cours Complets Open-Source & Plateformes Exploitées'),
-      const SizedBox(height: 8),
-      ...EnglishOpenSourceService.openPortals.map(
-        (p) => YitteSurfaceCard(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text('${p.licenseOrAccess}\n${p.summary}'),
-            isThreeLine: true,
-            trailing: IconButton(
-              tooltip: 'Ouvrir le cours externe',
-              icon: const Icon(Icons.open_in_new_rounded),
-              onPressed: () => ExternalLinkBridge.openUrl(p.url),
             ),
           ),
-        ),
+          Expanded(
+            child: switch (_activeTab) {
+              0 => _buildLearnaChatTab(context),
+              1 => _buildCoursesTab(context),
+              _ => _buildVocabularyTab(context, eco, audio),
+            },
+          ),
+        ],
       ),
-    ];
+    );
   }
 
-  /// Onglet 1 : Conversation Orale & Lecture Fluide avec Amy (inspiré d'English AI).
-  List<Widget> _buildAmyConversationTab(BuildContext context) {
+  // ═══════════════════════════════════════════════════════════════════════
+  // ONGLET 0 : DISCUTER EN DIRECT AVEC AMY (INSPIRÉ DE LEARNA AI)
+  // ═══════════════════════════════════════════════════════════════════════
+  Widget _buildLearnaChatTab(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final scenarios = _allAmyScenarios;
-    final active = scenarios[_amyScenarioIdx.clamp(0, scenarios.length - 1)];
+    final topics = EnglishLearnaCurriculum.naturalTopics;
     final nextLevel = EnglishOpenSourceService.nextCefrLevel(_cefr);
-    final avgFluency = _amyTurnScores.isEmpty
-        ? null
-        : (_amyTurnScores.reduce((a, b) => a + b) / _amyTurnScores.length)
-            .round();
-    final levelRatio = (_solidTurnsAtLevel / 3).clamp(0.0, 1.0);
+    final isUk = _voiceProfile.endsWith('-uk');
+    final isSlow = _speechRate < 0.85;
 
-    const voiceProfiles = [
-      (id: 'amy-fluent-us', label: 'Amy Fluide (US)'),
-      (id: 'amy-soft-uk', label: 'Amy Douce (UK)'),
-      (id: 'amy-clear-uk', label: 'Amy Claire (AU/UK)'),
-    ];
-    const speeds = [
-      (rate: 0.78, label: '0.8× Lent'),
-      (rate: 0.96, label: '1.0× Fluide'),
-      (rate: 1.14, label: '1.15× Natif'),
-    ];
-
-    return [
-      // Carte Studio Vocale Amy (Émeraude & Or 1px — façon English AI)
-      Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: YitteColors.emerald,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: YitteColors.gold, width: 1),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return Column(
+      children: [
+        // 1. Barre compacte Amy (1 seule ligne propre : Avatar + Sujet + Accent UK/US + Vitesse + Audio)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: YitteColors.emerald,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: YitteColors.gold, width: 1),
+            ),
+            child: Row(
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: YitteColors.gold,
                     border: Border.all(
                       color: _amySpeaking ? YitteColors.ivory : YitteColors.gold,
-                      width: _amySpeaking ? 2.2 : 1.2,
+                      width: _amySpeaking ? 2 : 1,
                     ),
                   ),
                   child: Center(
                     child: _amySpeaking
                         ? const Icon(
                             Icons.graphic_eq_rounded,
-                            size: 22,
+                            size: 18,
                             color: YitteColors.inkDark,
                           )
                         : const Text(
                             'A',
                             style: TextStyle(
                               fontFamily: YitteFonts.display,
-                              fontSize: 22,
+                              fontSize: 17,
                               fontWeight: FontWeight.w700,
                               color: YitteColors.inkDark,
                             ),
                           ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Amy — Coach IA Vocale',
-                        style: TextStyle(
-                          fontFamily: YitteFonts.display,
+                      Text(
+                        'Amy • ${_activeTopic.titleFr}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
                           color: YitteColors.ivory,
-                          fontSize: 17,
                           fontWeight: FontWeight.w700,
+                          fontSize: 13.5,
                         ),
                       ),
                       Text(
                         _amySpeaking
-                            ? 'Amy parle • $_amyVoiceEngineLabel'
-                            : '$_amyVoiceEngineLabel • Touchez un mot pour l’écouter',
+                            ? 'Amy vous parle…'
+                            : 'Touchez un mot pour l’écouter',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: YitteColors.ivory.withValues(alpha: 0.84),
-                          fontSize: 11.5,
+                          color: YitteColors.ivory.withValues(alpha: 0.78),
+                          fontSize: 11,
                         ),
                       ),
                     ],
                   ),
                 ),
+                // Accent UK / US compact
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => setState(() {
+                    _voiceProfile = isUk ? 'amy-fluent-us' : 'amy-soft-uk';
+                  }),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isUk ? 'UK' : 'US',
+                      style: const TextStyle(
+                        color: YitteColors.ivory,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                // Vitesse 1x / 0.8x compacte
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () =>
+                      setState(() => _speechRate = isSlow ? 0.96 : 0.78),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isSlow
+                          ? YitteColors.gold
+                          : Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isSlow ? '0.8×' : '1×',
+                      style: TextStyle(
+                        color:
+                            isSlow ? YitteColors.inkDark : YitteColors.ivory,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
                 IconButton(
-                  tooltip: _amySpeaking ? 'Arrêter la lecture' : 'Écouter Amy',
+                  tooltip: _amySpeaking ? 'Arrêter' : 'Réécouter Amy',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: () {
                     if (_amySpeaking) {
                       SpeechBridge.stopSpeaking();
                       return;
                     }
-                    final lastIdx = _amyMessages.lastIndexWhere((m) => m.fromAmy);
-                    if (lastIdx >= 0) {
-                      final m = _amyMessages[lastIdx];
-                      _speakAsAmy(
-                        m.englishText,
-                        messageIdx: lastIdx,
-                        bundledAssetPath: m.bundledAssetPath,
-                      );
-                    } else {
-                      _speakAsAmy(
-                        active.openingEn,
-                        bundledAssetPath: active.openingAssetPath,
+                    final lastAmy = _messages.lastIndexWhere((m) => m.fromAmy);
+                    if (lastAmy >= 0) {
+                      _speakFluid(
+                        _messages[lastAmy].englishText,
+                        msgIdx: lastAmy,
                       );
                     }
                   },
@@ -1901,212 +647,32 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                         ? Icons.stop_circle_outlined
                         : Icons.volume_up_rounded,
                     color: YitteColors.gold,
+                    size: 20,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            // Sélecteur de Voix Féminine Neurale
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: voiceProfiles.map((vp) {
-                  final selected = _amyVoiceProfile == vp.id;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      selected: selected,
-                      showCheckmark: false,
-                      visualDensity: VisualDensity.compact,
-                      selectedColor: YitteColors.gold,
-                      backgroundColor: Colors.white.withValues(alpha: 0.08),
-                      side: BorderSide(
-                        color: selected
-                            ? YitteColors.gold
-                            : YitteColors.ivory.withValues(alpha: 0.28),
-                      ),
-                      label: Text(
-                        vp.label,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: selected
-                              ? YitteColors.inkDark
-                              : YitteColors.ivory,
-                        ),
-                      ),
-                      onSelected: (_) {
-                        setState(() {
-                          _amyVoiceProfile = vp.id;
-                          _variant = vp.id.endsWith('-uk') ? 'en-GB' : 'en-US';
-                        });
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Vitesse fluide (0.8× / 1.0× / 1.15×) + Voix auto
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                ...speeds.map((sp) {
-                  final sel = (_amyRate - sp.rate).abs() < 0.05;
-                  return ChoiceChip(
-                    selected: sel,
-                    showCheckmark: false,
-                    visualDensity: VisualDensity.compact,
-                    selectedColor: YitteColors.ivory,
-                    backgroundColor: Colors.white.withValues(alpha: 0.08),
-                    side: BorderSide(
-                      color: YitteColors.ivory.withValues(alpha: 0.25),
-                    ),
-                    label: Text(
-                      sp.label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: sel ? YitteColors.emerald : YitteColors.ivory,
-                      ),
-                    ),
-                    onSelected: (_) => setState(() => _amyRate = sp.rate),
-                  );
-                }),
-                FilterChip(
-                  selected: _amyAutoSpeak,
-                  showCheckmark: false,
-                  visualDensity: VisualDensity.compact,
-                  selectedColor: YitteColors.gold,
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                  side: BorderSide(
-                    color: YitteColors.ivory.withValues(alpha: 0.25),
-                  ),
-                  label: Text(
-                    _amyAutoSpeak ? 'Auto : ON' : 'Auto : OFF',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _amyAutoSpeak
-                          ? YitteColors.inkDark
-                          : YitteColors.ivory,
-                    ),
-                  ),
-                  onSelected: (v) => setState(() => _amyAutoSpeak = v),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            // Barre de progression adaptative par niveau CEFR (A1 → C2)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: YitteColors.gold.withValues(alpha: 0.35),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          nextLevel != null
-                              ? 'Niveau actif : $_cefr • Cap vers $nextLevel ($_solidTurnsAtLevel/3 échanges réussis)'
-                              : 'Niveau actif : $_cefr (Maîtrise complète)',
-                          style: const TextStyle(
-                            color: YitteColors.ivory,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      if (avgFluency != null)
-                        Text(
-                          'Moy. $avgFluency/100',
-                          style: const TextStyle(
-                            color: YitteColors.gold,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                    ],
-                  ),
-                  if (nextLevel != null) ...[
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: levelRatio,
-                        minHeight: 5,
-                        backgroundColor: Colors.white.withValues(alpha: 0.16),
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          YitteColors.gold,
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (_solidTurnsAtLevel >= 3 && nextLevel != null) ...[
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: YitteColors.gold,
-                          foregroundColor: YitteColors.inkDark,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: _promoteToNextCefr,
-                        icon: const Icon(Icons.trending_up_rounded, size: 16),
-                        label: Text('Passer au niveau supérieur ($nextLevel) →'),
-                      ),
-                    ),
-                  ] else if (_lastEstimatedCefr != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      'Dernier niveau détecté par Amy : $_lastEstimatedCefr',
-                      style: TextStyle(
-                        color: YitteColors.ivory.withValues(alpha: 0.78),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
-      const SizedBox(height: 12),
+        const SizedBox(height: 8),
 
-      // Sélecteur des 6 Scénarios de pratique orale
-      Text(
-        'SCÉNARIO DE PRATIQUE AVEC AMY',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              letterSpacing: 1.2,
-              fontWeight: FontWeight.w700,
-            ),
-      ),
-      const SizedBox(height: 6),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: scenarios.asMap().entries.map((entry) {
-            final idx = entry.key;
-            final sc = entry.value;
-            final selected = idx == _amyScenarioIdx;
-            return Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
+        // 2. Sélecteur horizontal de sujets naturels (façon Learna AI)
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: topics.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 6),
+            itemBuilder: (context, idx) {
+              final t = topics[idx];
+              final selected = _customLessonTopic == null && idx == _topicIdx;
+              return ChoiceChip(
                 selected: selected,
                 showCheckmark: false,
-                selectedColor: YitteColors.emerald,
                 visualDensity: VisualDensity.compact,
-                label: Text('${sc.titleFr} (${sc.levelRange})'),
+                selectedColor: YitteColors.emerald,
+                label: Text(t.titleFr),
                 labelStyle: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -2114,642 +680,1364 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                       ? YitteColors.ivory
                       : Theme.of(context).colorScheme.onSurface,
                 ),
-                onSelected: (_) => _resetAmyScenario(idx),
+                onSelected: (_) => _startTopic(idx),
+              );
+            },
+          ),
+        ),
+
+        // 3. Barre discrète de progression CEFR (uniquement une fois la discussion lancée)
+        if (_turnScores.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: tokens.elevated,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: tokens.borderSubtle),
               ),
-            );
-          }).toList(),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      nextLevel != null
+                          ? 'Progression $_cefr → $nextLevel : $_solidTurnsAtLevel/3 échanges fluides'
+                          : 'Niveau $_cefr • Maîtrise confirmée',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                  if (_solidTurnsAtLevel >= 3 && nextLevel != null)
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: YitteColors.gold,
+                        foregroundColor: YitteColors.inkDark,
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                      ),
+                      onPressed: _levelUpCefr,
+                      child: Text('Passer en $nextLevel →'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+        // 4. Mini-fiche mot cliqué
+        if (_tappedWord != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: YitteSurfaceCard(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: tokens.goldSurface,
+              borderColor: tokens.borderAccent,
+              child: Row(
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () =>
+                        _speakFluid(_tappedWord!, overrideRate: 0.86),
+                    icon: const Icon(
+                      Icons.volume_up_rounded,
+                      size: 18,
+                      color: YitteColors.emerald,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _tappedWordLoading
+                          ? '${_tappedWord!} …'
+                          : '${_tappedWord!} — ${_tappedWordDef ?? ""}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => setState(() => _tappedWord = null),
+                    icon: const Icon(Icons.close_rounded, size: 17),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // 5. Fil de discussion naturel (façon Learna AI)
+        Expanded(
+          child: ListView.builder(
+            controller: _chatScrollCtrl,
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+            itemCount: _messages.length + (_amyBusy ? 1 : 0),
+            itemBuilder: (context, idx) {
+              if (idx >= _messages.length) {
+                return const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: YitteLoadingBanner(message: 'Amy prépare sa réponse…'),
+                );
+              }
+              final m = _messages[idx];
+              return m.fromAmy
+                  ? _buildAmyBubble(context, m, idx, tokens)
+                  : _buildUserBubble(context, m, tokens);
+            },
+          ),
+        ),
+
+        // 6. Tiroir d'aide optionnel (uniquement si l'utilisateur clique "Aide")
+        if (_showHelpDrawer && _currentHints.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: tokens.elevated,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.borderAccent),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'IDÉES POUR RÉPONDRE',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            letterSpacing: 1.1,
+                            fontWeight: FontWeight.w700,
+                            color: tokens.goldAccent,
+                          ),
+                    ),
+                    const Spacer(),
+                    InkWell(
+                      onTap: () => setState(() => _showHelpDrawer = false),
+                      child: const Icon(Icons.close_rounded, size: 16),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ..._currentHints.map(
+                  (hint) => Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _speakFluid(hint),
+                          icon: const Icon(
+                            Icons.volume_up_outlined,
+                            size: 16,
+                            color: YitteColors.emerald,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              _chatInputCtrl.text = hint;
+                              setState(() => _showHelpDrawer = false);
+                            },
+                            child: Text(
+                              hint,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
+                                  ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // 7. Barre de saisie vocale & écrite (ancrée en bas, épurée)
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          decoration: BoxDecoration(
+            color: tokens.elevated,
+            border: Border(top: BorderSide(color: tokens.borderSubtle)),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Idées de réponse',
+                onPressed: () =>
+                    setState(() => _showHelpDrawer = !_showHelpDrawer),
+                icon: Icon(
+                  Icons.lightbulb_outline_rounded,
+                  color: _showHelpDrawer
+                      ? tokens.goldAccent
+                      : Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _chatInputCtrl,
+                  minLines: 1,
+                  maxLines: 3,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: _sendMessage,
+                  decoration: const InputDecoration(
+                    hintText: 'Répondez à Amy en anglais…',
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              // Bouton Micro direct
+              Material(
+                color: _listening ? YitteColors.danger : YitteColors.gold,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: _listening ? 'Arrêter le micro' : 'Parler en anglais',
+                  onPressed: () {
+                    if (_listening) {
+                      SpeechBridge.stopDictation();
+                      setState(() => _listening = false);
+                      return;
+                    }
+                    SpeechBridge.stopSpeaking();
+                    final started = SpeechBridge.startDictation(
+                      locale: _activeLocale,
+                      onTranscript: (t) {
+                        if (!mounted) return;
+                        setState(() => _chatInputCtrl.text = t);
+                      },
+                      onError: (err) {
+                        if (!mounted) return;
+                        setState(() => _listening = false);
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text(err)));
+                      },
+                    );
+                    if (started) setState(() => _listening = true);
+                  },
+                  icon: Icon(
+                    _listening ? Icons.stop_rounded : Icons.mic_rounded,
+                    size: 20,
+                    color: _listening ? Colors.white : YitteColors.inkDark,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              // Bouton Envoyer
+              Material(
+                color: YitteColors.emerald,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: 'Envoyer',
+                  onPressed:
+                      _amyBusy ? null : () => _sendMessage(_chatInputCtrl.text),
+                  icon: const Icon(
+                    Icons.arrow_upward_rounded,
+                    size: 20,
+                    color: YitteColors.ivory,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAmyBubble(
+    BuildContext context,
+    _ChatBubble m,
+    int msgIdx,
+    YitteSurfaceTokens tokens,
+  ) {
+    final isSpeakingThis = _amySpeaking && _speakingMsgIdx == msgIdx;
+    final showFr = _revealedTranslations.contains(msgIdx);
+    final words = m.englishText
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10, right: 24),
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          color: tokens.elevated,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(4),
+            topRight: Radius.circular(14),
+            bottomLeft: Radius.circular(14),
+            bottomRight: Radius.circular(14),
+          ),
+          border: Border.all(
+            color: isSpeakingThis ? YitteColors.emerald : tokens.borderSubtle,
+            width: isSpeakingThis ? 1.4 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: words.asMap().entries.map((entry) {
+                final wIdx = entry.key;
+                final wText = entry.value;
+                final active = isSpeakingThis && _speakingWordIdx == wIdx;
+                return GestureDetector(
+                  onTap: () => _tapWord(wText),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 2.5, vertical: 1),
+                    decoration: active
+                        ? BoxDecoration(
+                            color: YitteColors.emerald,
+                            borderRadius: BorderRadius.circular(4),
+                          )
+                        : null,
+                    child: Text(
+                      wText,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontSize: 15,
+                            height: 1.38,
+                            color: active
+                                ? YitteColors.ivory
+                                : Theme.of(context).colorScheme.onSurface,
+                          ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            if (showFr &&
+                m.frenchTranslation != null &&
+                m.frenchTranslation!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Divider(height: 1, color: tokens.borderSubtle),
+              const SizedBox(height: 6),
+              Text(
+                m.frenchTranslation!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontStyle: FontStyle.italic,
+                    ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _MiniBubbleAction(
+                  icon: Icons.volume_up_outlined,
+                  label: 'Écouter',
+                  onTap: () => _speakFluid(m.englishText, msgIdx: msgIdx),
+                ),
+                const SizedBox(width: 12),
+                _MiniBubbleAction(
+                  icon: Icons.slow_motion_video_rounded,
+                  label: 'Lent',
+                  onTap: () => _speakFluid(
+                    m.englishText,
+                    msgIdx: msgIdx,
+                    overrideRate: 0.78,
+                  ),
+                ),
+                if (m.frenchTranslation != null &&
+                    m.frenchTranslation!.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  _MiniBubbleAction(
+                    icon: Icons.translate_rounded,
+                    label: showFr ? 'Masquer' : 'Traduire',
+                    onTap: () => setState(() {
+                      if (showFr) {
+                        _revealedTranslations.remove(msgIdx);
+                      } else {
+                        _revealedTranslations.add(msgIdx);
+                      }
+                    }),
+                  ),
+                ],
+              ],
+            ),
+          ],
         ),
       ),
-      const SizedBox(height: 10),
+    );
+  }
 
-      // Mini-dictionnaire instantané lorsqu'un mot est touché dans le texte d'Amy (façon English AI)
-      if (_tappedWord != null)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: YitteSurfaceCard(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            color: tokens.goldSurface,
-            borderColor: tokens.borderAccent,
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'Réécouter le mot',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => _speakAsAmy(_tappedWord!, overrideRate: 0.86),
-                  icon: const Icon(
-                    Icons.volume_up_rounded,
-                    size: 18,
+  Widget _buildUserBubble(
+    BuildContext context,
+    _ChatBubble m,
+    YitteSurfaceTokens tokens,
+  ) {
+    final hasFix = m.correctedText != null && m.correctedText!.isNotEmpty;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10, left: 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+              decoration: BoxDecoration(
+                color: YitteColors.emerald,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(14),
+                  topRight: Radius.circular(4),
+                  bottomLeft: Radius.circular(14),
+                  bottomRight: Radius.circular(14),
+                ),
+              ),
+              child: Text(
+                m.englishText,
+                style: const TextStyle(
+                  color: YitteColors.ivory,
+                  fontSize: 14.5,
+                  height: 1.38,
+                ),
+              ),
+            ),
+            // Feedback Learna AI sobre juste sous la bulle de l'utilisateur
+            if (hasFix || (m.nativeUpgrade != null && m.nativeUpgrade!.isNotEmpty))
+              Container(
+                margin: const EdgeInsets.only(top: 5),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: hasFix ? tokens.goldSurface : tokens.elevated,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: hasFix ? tokens.borderAccent : tokens.borderSubtle,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (hasFix) ...[
+                      Row(
+                        children: [
+                          Text(
+                            'MIEUX DIRE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.0,
+                              color: tokens.goldAccent,
+                            ),
+                          ),
+                          const Spacer(),
+                          InkWell(
+                            onTap: () => _speakFluid(m.correctedText!),
+                            child: const Icon(
+                              Icons.volume_up_outlined,
+                              size: 16,
+                              color: YitteColors.emerald,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        m.correctedText!,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: YitteColors.emerald,
+                            ),
+                      ),
+                      if (m.coachingTipFr != null &&
+                          m.coachingTipFr!.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          m.coachingTipFr!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ] else if (m.nativeUpgrade != null &&
+                        m.nativeUpgrade!.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          const Text(
+                            '✓ NATUREL • VERSION PLUS FLUIDE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.9,
+                              color: YitteColors.emerald,
+                            ),
+                          ),
+                          const Spacer(),
+                          InkWell(
+                            onTap: () => _speakFluid(m.nativeUpgrade!),
+                            child: const Icon(
+                              Icons.volume_up_outlined,
+                              size: 16,
+                              color: YitteColors.emerald,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '"${m.nativeUpgrade!}"',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontStyle: FontStyle.italic,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                      ),
+                    ],
+                  ],
+                ),
+              )
+            else if (m.fluencyScore != null && m.fluencyScore! >= 80)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, right: 4),
+                child: Text(
+                  '✓ Naturel',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                     color: YitteColors.emerald,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ONGLET 1 : COURS STRUCTURÉS POUR SE PERFECTIONNER (18 LEÇONS A1 → C2)
+  // ═══════════════════════════════════════════════════════════════════════
+  Widget _buildCoursesTab(BuildContext context) {
+    if (_openLesson != null) {
+      return _buildLessonDetail(context, _openLesson!);
+    }
+
+    final tokens = AppTheme.tokensOf(context);
+    final levelLessons = EnglishLearnaCurriculum.lessonsForLevel(_cefr);
+    final totalDone = _completedLessonIds.length;
+    final totalAll = EnglishLearnaCurriculum.lessons.length;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+      children: [
+        // Sélecteur de niveau CEFR (A1 → C2) + progression globale
+        YitteSurfaceCard(
+          padding: const EdgeInsets.all(14),
+          borderColor: tokens.borderAccent,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Parcours de perfectionnement',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  YitteStatusPill(label: '$totalDone / $totalAll'),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Choisissez votre niveau et suivez chaque leçon, puis pratiquez-la directement à l’oral avec Amy.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 10),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: EnglishOpenSourceService.cefrLevelsOrdered
+                      .map((lvl) {
+                    final sel = _cefr == lvl;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        selected: sel,
+                        showCheckmark: false,
+                        visualDensity: VisualDensity.compact,
+                        selectedColor: YitteColors.emerald,
+                        label: Text(lvl),
+                        labelStyle: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: sel
+                              ? YitteColors.ivory
+                              : Theme.of(context).colorScheme.onSurface,
+                        ),
+                        onSelected: (_) {
+                          setState(() => _cefr = lvl);
+                          _saveCefr(lvl);
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        Text(
+          'LEÇONS NIVEAU $_cefr (${levelLessons.length} UNITÉS)',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+
+        ...levelLessons.map((lesson) {
+          final done = _completedLessonIds.contains(lesson.id);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: YitteSurfaceCard(
+              padding: const EdgeInsets.all(14),
+              borderColor: done ? YitteColors.emerald : tokens.borderSubtle,
+              onTap: () => setState(() => _openLesson = lesson),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: done ? YitteColors.emerald : tokens.subtleFill,
+                      border: Border.all(
+                        color: done ? YitteColors.gold : tokens.borderSubtle,
+                      ),
+                    ),
+                    child: Center(
+                      child: done
+                          ? const Icon(
+                              Icons.check_rounded,
+                              size: 20,
+                              color: YitteColors.ivory,
+                            )
+                          : Text(
+                              '${lesson.unitNumber}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: YitteColors.emerald,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          lesson.titleFr,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${lesson.subtitleFr} • ${lesson.durationMin} min',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, size: 20),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildLessonDetail(BuildContext context, LearnaLesson lesson) {
+    final tokens = AppTheme.tokensOf(context);
+    final done = _completedLessonIds.contains(lesson.id);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
+      children: [
+        Row(
+          children: [
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: () => setState(() => _openLesson = null),
+              icon: const Icon(Icons.arrow_back_rounded, size: 16),
+              label: const Text('Tous les cours'),
+            ),
+            const Spacer(),
+            YitteStatusPill(label: '${lesson.level} • Unité ${lesson.unitNumber}'),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        YitteSurfaceCard(
+          padding: const EdgeInsets.all(15),
+          borderColor: tokens.borderAccent,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                lesson.titleFr,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(lesson.subtitleFr, style: Theme.of(context).textTheme.bodySmall),
+              const Divider(height: 22),
+
+              // 1. L'essentiel
+              Text(
+                '1. L’ESSENTIEL À MAÎTRISER',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.goldAccent,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              ...lesson.coreRules.map(
+                (r) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('• $r', style: const TextStyle(height: 1.42)),
+                ),
+              ),
+
+              const Divider(height: 22),
+
+              // 2. À éviter vs Naturel (avec écoute fluide)
+              Text(
+                '2. PIÈGES FRANCOPHONES : À ÉVITER VS NATUREL',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.goldAccent,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              ...lesson.traps.map(
+                (row) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: tokens.subtleFill,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: tokens.borderSubtle),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              row.avoid,
+                              style: const TextStyle(
+                                color: YitteColors.danger,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              row.natural,
+                              style: const TextStyle(
+                                color: YitteColors.emerald,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              row.explanationFr,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Écouter la tournure naturelle',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _speakFluid(
+                          row.natural.replaceAll('✅', '').trim(),
+                        ),
+                        icon: const Icon(
+                          Icons.volume_up_outlined,
+                          size: 19,
+                          color: YitteColors.emerald,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const Divider(height: 22),
+
+              // 3. Dialogue audio naturel
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '3. DIALOGUE AUDIO',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            letterSpacing: 1.1,
+                            fontWeight: FontWeight.w700,
+                            color: tokens.goldAccent,
+                          ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () => _speakFluid(
+                      lesson.dialogue.map((d) => d.english).join(' '),
+                    ),
+                    icon: const Icon(Icons.volume_up_rounded, size: 16),
+                    label: const Text('Tout écouter'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              ...lesson.dialogue.map(
+                (line) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${line.speaker} : "${line.english}"',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                            Text(
+                              line.french,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _speakFluid(line.english),
+                        icon: const Icon(
+                          Icons.play_circle_outline_rounded,
+                          size: 19,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const Divider(height: 22),
+
+              // 4. Exercice immédiat corrigé
+              Text(
+                '4. VÉRIFICATION RAPIDE',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.goldAccent,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              ...lesson.quiz.asMap().entries.map((entry) {
+                final qKey = '${lesson.id}_${entry.key}';
+                final q = entry.value;
+                final fb = _lessonQuizFeedback[qKey];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _tappedWord!,
-                        style: Theme.of(context).textTheme.titleSmall,
+                        q.question,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: q.options.map((opt) {
+                          return ActionChip(
+                            label: Text(opt),
+                            onPressed: () {
+                              setState(() {
+                                _lessonQuizFeedback[qKey] = opt == q.answer
+                                    ? '✓ Exact ! ${q.explanation}'
+                                    : 'À revoir : la bonne réponse est « ${q.answer} ». ${q.explanation}';
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      if (fb != null) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          fb,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: fb.startsWith('✓')
+                                ? YitteColors.emerald
+                                : YitteColors.danger,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              }),
+
+              const SizedBox(height: 6),
+              // CTA signature Learna AI : appliquer la leçon en discutant en direct avec Amy !
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: YitteColors.gold,
+                    foregroundColor: YitteColors.inkDark,
+                  ),
+                  onPressed: () => _practiceLessonWithAmy(lesson),
+                  icon: const Icon(Icons.forum_outlined, size: 18),
+                  label: const Text('Pratiquer cette leçon avec Amy →'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _toggleLessonCompleted(lesson.id),
+                  icon: Icon(
+                    done
+                        ? Icons.check_circle_rounded
+                        : Icons.check_circle_outline_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    done ? 'Leçon validée ✓' : 'Marquer cette leçon comme terminée',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ONGLET 2 : VOCABULAIRE & DICTIONNAIRE RAPIDE (ÉPURÉ, ZÉRO JARGON)
+  // ═══════════════════════════════════════════════════════════════════════
+  Widget _buildVocabularyTab(
+    BuildContext context,
+    EcosystemState eco,
+    AudioService audio,
+  ) {
+    final tokens = AppTheme.tokensOf(context);
+    final levelPool = eco.dailyVocab.where((w) => w.cefrLevel == _cefr).toList();
+    final displayedWords = levelPool.isNotEmpty ? levelPool : eco.dailyVocab;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
+      children: [
+        // Recherche instantanée de n'importe quel mot anglais
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _dictCtrl,
+                onSubmitted: _lookupDictionary,
+                decoration: const InputDecoration(
+                  hintText: 'Chercher un mot anglais (ex. fluent, achieve)…',
+                  prefixIcon: Icon(Icons.search_rounded),
+                  isDense: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _searchingWord
+                  ? null
+                  : () => _lookupDictionary(_dictCtrl.text),
+              child: const Text('Chercher'),
+            ),
+          ],
+        ),
+        if (_searchingWord)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        if (_dictError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              _dictError!,
+              style: const TextStyle(color: YitteColors.danger),
+            ),
+          ),
+        if (_dictEntry != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: YitteSurfaceCard(
+              borderColor: tokens.borderAccent,
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${_dictEntry!.word}  ${_dictEntry!.phonetic}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Écouter la prononciation',
+                        onPressed: () {
+                          final url = _dictEntry!.preferredAudioFor(_activeLocale);
+                          if (url != null && url.isNotEmpty) {
+                            audio.playFile(
+                              url,
+                              onError: (_) => _speakFluid(_dictEntry!.word),
+                            );
+                          } else {
+                            _speakFluid(_dictEntry!.word);
+                          }
+                        },
+                        icon: const Icon(
+                          Icons.volume_up_rounded,
+                          color: YitteColors.emerald,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ..._dictEntry!.meanings.take(2).map(
+                        (m) => Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              YitteStatusPill(label: m.partOfSpeech),
+                              const SizedBox(height: 4),
+                              ...m.definitions.take(2).map(
+                                    (d) => Text(
+                                      '• $d',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ),
+                            ],
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+
+        const SizedBox(height: 16),
+        Text(
+          'MOTS ESSENTIELS — NIVEAU $_cefr',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+        ...displayedWords.map(
+          (w) => YitteSurfaceCard(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            w.word,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.5,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _activeLocale == 'en-GB'
+                                ? w.phoneticUk
+                                : w.phoneticUs,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: tokens.goldAccent,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
                       Text(
-                        _tappedWordLoading
-                            ? 'Chargement de la phonétique & définition...'
-                            : (_tappedWordInfo ?? ''),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        '${w.definitionFr} • "${w.exampleEn}"',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Fermer',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => setState(() => _tappedWord = null),
-                  icon: const Icon(Icons.close_rounded, size: 17),
+                  tooltip: 'Écouter',
+                  onPressed: () => _speakFluid('${w.word}. ${w.exampleEn}'),
+                  icon: const Icon(
+                    Icons.volume_up_outlined,
+                    size: 19,
+                    color: YitteColors.emerald,
+                  ),
+                ),
+                IconButton(
+                  tooltip: w.mastered ? 'Acquis' : 'Marquer acquis',
+                  onPressed: () => ref
+                      .read(ecosystemProvider.notifier)
+                      .toggleVocabMastered(w.id),
+                  icon: Icon(
+                    w.mastered
+                        ? Icons.check_circle_rounded
+                        : Icons.check_circle_outline_rounded,
+                    size: 19,
+                    color: w.mastered ? YitteColors.emerald : null,
+                  ),
                 ),
               ],
             ),
           ),
         ),
 
-      // Fil de dialogue interactif façon English AI (lecture synchronisée mot-à-mot + traduction + répétition)
-      ..._amyMessages.asMap().entries.map((entry) {
-        final msgIdx = entry.key;
-        final m = entry.value;
-        final isThisSpeaking = _amySpeaking && _speakingMessageIdx == msgIdx;
-        final showFr = _revealedTranslations.contains(msgIdx);
-        final words = m.englishText
-            .trim()
-            .split(RegExp(r'\s+'))
-            .where((w) => w.isNotEmpty)
-            .toList();
-
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: YitteSurfaceCard(
-            padding: const EdgeInsets.all(13),
-            color: m.fromAmy ? tokens.elevated : tokens.subtleFill,
-            borderColor: isThisSpeaking
-                ? YitteColors.emerald
-                : (m.fromAmy ? tokens.borderAccent : tokens.borderSubtle),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      m.fromAmy ? 'AMY (COACH IA)' : 'VOUS',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.1,
-                        color: m.fromAmy
-                            ? tokens.goldAccent
-                            : Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    if (m.fluencyScore != null && m.fluencyScore! > 0)
-                      YitteStatusPill(label: 'Fluidité ${m.fluencyScore}/100'),
-                    if (m.estimatedCefr != null && m.estimatedCefr!.isNotEmpty)
-                      YitteStatusPill(label: m.estimatedCefr!),
-                    if (m.usedLiveAi) const YitteStatusPill(label: 'IA live'),
-                    if (isThisSpeaking)
-                      const YitteStatusPill(
-                        icon: Icons.graphic_eq_rounded,
-                        label: 'Lecture en cours',
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                // Lecture synchronisée mot-à-mot (chaque mot cliquable pour écoute & définition)
-                if (m.fromAmy)
-                  Wrap(
-                    spacing: 4,
-                    runSpacing: 4,
-                    children: words.asMap().entries.map((wEntry) {
-                      final wIdx = wEntry.key;
-                      final wText = wEntry.value;
-                      final highlighted =
-                          isThisSpeaking && _speakingWordIdx == wIdx;
-                      return GestureDetector(
-                        onTap: () => _tapWordInAmyMessage(wText),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 3,
-                            vertical: 1,
-                          ),
-                          decoration: highlighted
-                              ? BoxDecoration(
-                                  color: YitteColors.emerald,
-                                  borderRadius: BorderRadius.circular(4),
-                                )
-                              : null,
-                          child: Text(
-                            wText,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyLarge
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.35,
-                                  color: highlighted
-                                      ? YitteColors.ivory
-                                      : Theme.of(context).colorScheme.onSurface,
-                                ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  )
-                else
-                  Text(
-                    m.englishText,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-
-                // Barre d'actions English AI sous chaque bulle d'Amy : Écouter • Lent • Traduire • Répéter
-                if (m.fromAmy) ...[
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: [
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 4,
-                          ),
-                          textStyle: const TextStyle(fontSize: 11.5),
-                        ),
-                        onPressed: () => _speakAsAmy(
-                          m.englishText,
-                          messageIdx: msgIdx,
-                          bundledAssetPath: m.bundledAssetPath,
-                        ),
-                        icon: const Icon(Icons.volume_up_outlined, size: 15),
-                        label: const Text('Écouter'),
-                      ),
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 4,
-                          ),
-                          textStyle: const TextStyle(fontSize: 11.5),
-                        ),
-                        onPressed: () => _speakAsAmy(
-                          m.englishText,
-                          messageIdx: msgIdx,
-                          overrideRate: 0.78,
-                          bundledAssetPath: m.bundledAssetPath,
-                        ),
-                        icon: const Icon(Icons.slow_motion_video_rounded, size: 15),
-                        label: const Text('Lent'),
-                      ),
-                      if (m.frenchNote != null && m.frenchNote!.isNotEmpty)
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: 4,
-                            ),
-                            textStyle: const TextStyle(fontSize: 11.5),
-                          ),
-                          onPressed: () => setState(() {
-                            if (showFr) {
-                              _revealedTranslations.remove(msgIdx);
-                            } else {
-                              _revealedTranslations.add(msgIdx);
-                            }
-                          }),
-                          icon: const Icon(Icons.translate_rounded, size: 15),
-                          label: Text(showFr ? 'Masquer FR' : 'Traduire'),
-                        ),
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 4,
-                          ),
-                          textStyle: const TextStyle(fontSize: 11.5),
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _shadowingTarget = m.englishText;
-                            _shadowingEval = null;
-                          });
-                          _speakAsAmy(
-                            m.englishText,
-                            messageIdx: msgIdx,
-                            overrideRate: 0.85,
-                            bundledAssetPath: m.bundledAssetPath,
-                          );
-                        },
-                        icon: const Icon(Icons.record_voice_over_outlined, size: 15),
-                        label: const Text('Répéter'),
-                      ),
-                    ],
-                  ),
-                ],
-
-                if (showFr && m.frenchNote != null && m.frenchNote!.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    m.frenchNote!,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-
-                if (m.correctionNote != null && m.correctionNote!.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: tokens.goldSurface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: tokens.borderAccent),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+        const SizedBox(height: 14),
+        Text(
+          'VERBES IRRÉGULIERS CLÉS',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+        YitteSurfaceCard(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Column(
+            children: EnglishOpenSourceService.irregularVerbs
+                .asMap()
+                .entries
+                .map((entry) {
+              final v = entry.value;
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 7),
+                    child: Row(
                       children: [
-                        Text(
-                          m.correctionNote!,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${v.base}  →  ${v.past}  →  ${v.participle}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
                               ),
-                        ),
-                        if (m.correctedText != null &&
-                            m.correctedText!.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              style: TextButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: EdgeInsets.zero,
+                              Text(
+                                v.french,
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
-                              onPressed: () => _speakAsAmy(m.correctedText!),
-                              icon: const Icon(Icons.volume_up_outlined, size: 16),
-                              label: const Text('Écouter la version corrigée'),
-                            ),
+                            ],
                           ),
-                        ],
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () =>
+                              _speakFluid('${v.base}, ${v.past}, ${v.participle}'),
+                          icon: const Icon(
+                            Icons.volume_up_outlined,
+                            size: 18,
+                            color: YitteColors.emerald,
+                          ),
+                        ),
                       ],
                     ),
                   ),
+                  if (entry.key < EnglishOpenSourceService.irregularVerbs.length - 1)
+                    Divider(height: 1, color: tokens.borderSubtle),
                 ],
-
-                if (m.nativeUpgrade != null && m.nativeUpgrade!.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Version native : "${m.nativeUpgrade!}"',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Écouter la version native',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _speakAsAmy(m.nativeUpgrade!),
-                        icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      }),
-
-      if (_amyBusy)
-        const Padding(
-          padding: EdgeInsets.only(bottom: 10),
-          child: YitteLoadingBanner(
-            message: 'Amy analyse votre phrase et prépare sa réponse...',
+              );
+            }).toList(),
           ),
         ),
-
-      // Mode Shadowing / Répétition guidée mot-à-mot (façon English AI)
-      if (_shadowingTarget != null)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: YitteSurfaceCard(
-            borderColor: YitteColors.emerald,
-            padding: const EdgeInsets.all(13),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.record_voice_over_rounded,
-                      size: 18,
-                      color: YitteColors.emerald,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'MODE RÉPÉTITION (SHADOWING)',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              letterSpacing: 1.1,
-                              fontWeight: FontWeight.w700,
-                              color: YitteColors.emerald,
-                            ),
-                      ),
-                    ),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: () => setState(() {
-                        _shadowingTarget = null;
-                        _shadowingEval = null;
-                      }),
-                      child: const Text('Quitter'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Répétez à voix haute au micro :',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '« $_shadowingTarget »',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                if (_shadowingEval != null) ...[
-                  const SizedBox(height: 10),
-                  YitteStatusPill(
-                    label: 'Prononciation : ${_shadowingEval!.scorePercent}%',
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 5,
-                    runSpacing: 5,
-                    children: _shadowingEval!.wordResults.map((wr) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: wr.matched
-                              ? YitteColors.emeraldSoft
-                              : tokens.goldSurface,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: wr.matched
-                                ? YitteColors.emerald
-                                : tokens.goldAccent,
-                          ),
-                        ),
-                        child: Text(
-                          wr.word,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: wr.matched
-                                ? YitteColors.emerald
-                                : Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _shadowingEval!.feedbackFr,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-
-      // Idées de réponse guidées (façon English AI : "Aide-moi à répondre")
-      if (_amyHints.isNotEmpty && _shadowingTarget == null) ...[
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'IDÉES DE RÉPONSE (AIDE ORALE)',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-              onPressed: () => setState(() => _showAmyHints = !_showAmyHints),
-              child: Text(_showAmyHints ? 'Masquer' : 'Afficher'),
-            ),
-          ],
-        ),
-        if (_showAmyHints) ...[
-          const SizedBox(height: 4),
-          ..._amyHints.map(
-            (hint) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: tokens.elevated,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: tokens.borderSubtle),
-                ),
-                child: Row(
-                  children: [
-                    IconButton(
-                      tooltip: 'Écouter cette suggestion',
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () => _speakAsAmy(hint),
-                      icon: const Icon(
-                        Icons.volume_up_outlined,
-                        size: 17,
-                        color: YitteColors.emerald,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          _amyInputCtrl.text = hint;
-                          setState(() {});
-                        },
-                        child: Text(
-                          hint,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                                fontWeight: FontWeight.w500,
-                              ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      onPressed: () => _sendToAmy(hint),
-                      child: const Text('Utiliser'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-        ],
       ],
+    );
+  }
+}
 
-      // Zone Micro & Saisie orientée voix (façon English AI)
-      YitteSurfaceCard(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _amyInputCtrl,
-              maxLines: 2,
-              decoration: InputDecoration(
-                labelText: _shadowingTarget != null
-                    ? 'Parlez au micro pour évaluer votre répétition'
-                    : 'Parlez au micro ou répondez à Amy en anglais',
-                hintText:
-                    'Ex : Hello Amy, I joined BOROOM YITTÉ in 2026 to master English.',
+class _StudioTabButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _StudioTabButton({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = AppTheme.tokensOf(context);
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? YitteColors.emerald : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: active ? YitteColors.gold : tokens.goldAccent,
               ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _amyListening
-                        ? YitteColors.danger
-                        : YitteColors.gold,
-                    foregroundColor: _amyListening
-                        ? Colors.white
-                        : YitteColors.inkDark,
-                  ),
-                  onPressed: () {
-                    if (_amyListening) {
-                      SpeechBridge.stopDictation();
-                      setState(() => _amyListening = false);
-                      return;
-                    }
-                    SpeechBridge.stopSpeaking();
-                    final started = SpeechBridge.startDictation(
-                      locale: _amyVoiceProfile.endsWith('-uk')
-                          ? 'en-GB'
-                          : 'en-US',
-                      onTranscript: (t) {
-                        if (!mounted) return;
-                        setState(() => _amyInputCtrl.text = t);
-                      },
-                      onError: (err) {
-                        if (!mounted) return;
-                        setState(() => _amyListening = false);
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(SnackBar(content: Text(err)));
-                      },
-                    );
-                    if (started) {
-                      setState(() => _amyListening = true);
-                    }
-                  },
-                  icon: Icon(
-                    _amyListening
-                        ? Icons.stop_circle_outlined
-                        : Icons.mic_rounded,
-                    size: 18,
-                  ),
-                  label: Text(_amyListening ? 'Arrêter' : 'Parler'),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: active
+                      ? YitteColors.ivory
+                      : Theme.of(context).colorScheme.onSurface,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _amyBusy
-                        ? null
-                        : () => _sendToAmy(_amyInputCtrl.text),
-                    icon: Icon(
-                      _shadowingTarget != null
-                          ? Icons.check_circle_outline_rounded
-                          : Icons.send_rounded,
-                      size: 17,
-                    ),
-                    label: Text(
-                      _shadowingTarget != null
-                          ? 'Vérifier prononciation'
-                          : 'Répondre à Amy',
-                    ),
-                  ),
-                ),
-              ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniBubbleAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _MiniBubbleAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: YitteColors.emerald),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: YitteColors.emerald,
+              ),
             ),
           ],
         ),
       ),
-    ];
+    );
   }
 }
 
-class _AmyChatMessage {
+class _ChatBubble {
   final bool fromAmy;
   final String englishText;
-  final String? frenchNote;
-  final String? correctionNote;
+  final String? frenchTranslation;
   final String? correctedText;
+  final String? coachingTipFr;
   final String? nativeUpgrade;
   final int? fluencyScore;
-  final String? estimatedCefr;
-  final bool usedLiveAi;
-  final String? bundledAssetPath;
 
-  const _AmyChatMessage({
+  const _ChatBubble({
     required this.fromAmy,
     required this.englishText,
-    this.frenchNote,
-    this.correctionNote,
+    this.frenchTranslation,
     this.correctedText,
+    this.coachingTipFr,
     this.nativeUpgrade,
     this.fluencyScore,
-    this.estimatedCefr,
-    this.usedLiveAi = false,
-    this.bundledAssetPath,
   });
+
+  _ChatBubble copyWith({
+    String? correctedText,
+    String? coachingTipFr,
+    String? nativeUpgrade,
+    int? fluencyScore,
+  }) {
+    return _ChatBubble(
+      fromAmy: fromAmy,
+      englishText: englishText,
+      frenchTranslation: frenchTranslation,
+      correctedText: correctedText ?? this.correctedText,
+      coachingTipFr: coachingTipFr ?? this.coachingTipFr,
+      nativeUpgrade: nativeUpgrade ?? this.nativeUpgrade,
+      fluencyScore: fluencyScore ?? this.fluencyScore,
+    );
+  }
 }

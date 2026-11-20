@@ -644,9 +644,10 @@ class SpeechBridge {
           return;
         }
         final audio =
-            (audioCtor as JSFunction).callAsConstructor<JSObject>(url.toJS);
+            (audioCtor as JSFunction).callAsConstructor<JSObject>();
         audio['referrerPolicy'] = 'no-referrer'.toJS;
         audio['preload'] = 'auto'.toJS;
+        audio['src'] = url.toJS;
         audio['playbackRate'] = playbackRate.clamp(0.72, 1.28).toJS;
 
         audio['onplay'] = ((JSAny? _) {

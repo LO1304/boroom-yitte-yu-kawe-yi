@@ -245,32 +245,27 @@ void main() {
     expect(find.text('Sessions personnelles : 1'), findsOneWidget);
   });
 
-  testWidgets('EnglishClubScreen supports CEFR grammar & accent-fair evaluation',
+  testWidgets('EnglishClubScreen runs Learna-style live chat with Amy & inline coaching',
       (tester) async {
     await tester.pumpWidget(_wrapScreen(const EnglishClubScreen()));
     await tester.pumpAndSettle();
 
-    expect(find.text('A. 5 Mots Quotidiens'), findsOneWidget);
+    expect(find.text('ENGLISH STUDIO'), findsOneWidget);
+    expect(find.text('Discuter'), findsOneWidget);
+    expect(find.text('Cours'), findsOneWidget);
+    expect(find.text('Vocabulaire'), findsOneWidget);
+    expect(find.text('Café & Rencontre'), findsOneWidget);
+    expect(find.textContaining('Welcome'), findsWidgets);
 
-    final speechFinder = find.byType(TextField);
-    await _scrollTo(tester, speechFinder);
     await tester.enterText(
-      speechFinder.first,
-      'Although communication requires consistent practice, clear structure helps learners express nuanced ideas.',
+      find.byType(TextField).first,
+      'Despite of the rain, I buyed a coffee this morning.',
     );
-
-    final analyzeBtn = find.text('Analyser avec YITTE_ENGLISH_COACH');
-    await _scrollTo(tester, analyzeBtn);
-    await tester.tap(analyzeBtn);
+    await tester.tap(find.byTooltip('Envoyer'));
     await tester.pumpAndSettle();
 
-    await _scrollTo(tester, find.textContaining('Score Global :'));
-    expect(find.textContaining('Score Global :'), findsOneWidget);
-
-    final optFinder = find.text('Despite');
-    await _scrollTo(tester, optFinder);
-    await tester.tap(optFinder);
-    await tester.pumpAndSettle();
+    expect(find.text('MIEUX DIRE'), findsOneWidget);
+    expect(find.textContaining('Progression'), findsOneWidget);
   });
 
   testWidgets('PersonalGrowthScreen toggles habits and saves private journal note',
@@ -737,12 +732,19 @@ void main() {
     await tester.pumpWidget(_wrapScreen(const EnglishClubScreen()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Programme A1–C2'));
+    await tester.tap(find.text('Cours'));
     await tester.pumpAndSettle();
-    expect(find.text('Procédure Complète A1 → C2'), findsOneWidget);
-    final portalFinder = find.textContaining('British Council LearnEnglish');
-    await _scrollTo(tester, portalFinder);
-    expect(portalFinder, findsOneWidget);
+    expect(find.text('Parcours de perfectionnement'), findsOneWidget);
+    expect(find.textContaining('Present Perfect vs Past'), findsOneWidget);
+    // Clean Learna UI: no raw external portal link dumps inside the app
+    expect(find.textContaining('British Council LearnEnglish'), findsNothing);
+
+    await tester.tap(find.textContaining('Present Perfect vs Past'));
+    await tester.pumpAndSettle();
+    expect(find.text('1. L’ESSENTIEL À MAÎTRISER'), findsOneWidget);
+    final practiceBtn = find.text('Pratiquer cette leçon avec Amy →');
+    await _scrollTo(tester, practiceBtn);
+    expect(practiceBtn, findsOneWidget);
   });
 
   testWidgets(
