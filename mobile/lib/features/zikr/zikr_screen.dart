@@ -207,26 +207,23 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
     final remainingDailyRate =
         remaining == 0 ? 0 : (remaining / remainingDays).ceil();
 
+    void tapTasbih() {
+      HapticFeedback.lightImpact();
+      ref.read(ecosystemProvider.notifier).incrementTasbih();
+      ref.read(ecosystemProvider.notifier).incrementSalawat(step: 1);
+    }
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
       children: [
-        // Encart sobre non-compétitif (compact)
-        YitteSurfaceCard(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              const SanctuaryPrayerIcon(size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Aucune compétition, aucun classement ni badge de piété : choisissez librement votre Zikr et votre objectif.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            ],
+        // Note sobre 1 ligne non-compétitive
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(
+            'Aucune compétition, aucun classement ni badge de piété : choisissez librement votre Zikr et votre objectif.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
           ),
         ),
-        const SizedBox(height: 12),
 
         // Sélecteur horizontal des formules (avec صَلَّى اللهُ عَلَى مُحَمَّدٍ en premier + Zikr libre)
         Row(
@@ -251,7 +248,7 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
@@ -265,6 +262,7 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                   selected: selected,
                   showCheckmark: false,
                   selectedColor: YitteColors.emerald,
+                  visualDensity: VisualDensity.compact,
                   label: Text(
                     f.arabic,
                     textDirection: TextDirection.rtl,
@@ -284,11 +282,166 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
             }).toList(),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
 
-        // Bloc Objectif Personnel (Libre)
+        // CARTE UNIFIÉE : ZIKR À LIRE + COMPTEUR TACTILE DIRECTEMENT DESSOUS
         YitteSurfaceCard(
           borderColor: tokens.borderAccent,
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          child: Column(
+            children: [
+              // Toute la zone Lecture + Chapelet répond au toucher
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: tapTasbih,
+                child: Column(
+                  children: [
+                    Text(
+                      active.arabic,
+                      textDirection: TextDirection.rtl,
+                      textAlign: TextAlign.center,
+                      style: AppTheme.arabicStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 28,
+                      ),
+                    ),
+                    if (active.transliteration.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        active.transliteration,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontStyle: FontStyle.italic,
+                          fontSize: 13,
+                          color: tokens.goldAccent,
+                        ),
+                      ),
+                    ],
+                    if (active.french.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        active.french,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    YittePulseHalo(
+                      color: YitteColors.emerald,
+                      triggerKey: eco.personalTasbihCount,
+                      child: YitteProgressRing(
+                        progress: _target > 0
+                            ? ((eco.personalTasbihCount % _target == 0 &&
+                                        eco.personalTasbihCount > 0)
+                                    ? 1.0
+                                    : (eco.personalTasbihCount % _target) /
+                                        _target)
+                            : 0.0,
+                        size: 158,
+                        strokeWidth: 6.5,
+                        color: tokens.goldAccent,
+                        trackColor: tokens.borderSubtle,
+                        child: Container(
+                          width: 132,
+                          height: 132,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: YitteColors.emerald,
+                            border: Border.all(
+                              color: tokens.goldAccent,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const SanctuaryPrayerIcon(
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${eco.personalTasbihCount}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.w800,
+                                  fontFeatures: [FontFeature.tabularFigures()],
+                                ),
+                              ),
+                              Text(
+                                '/ $_target',
+                                style: TextStyle(
+                                  color: tokens.goldAccent,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Appuyez sur la formule ou le cercle pour compter',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: 11,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              SegmentedButton<int>(
+                showSelectedIcon: false,
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                segments: const [
+                  ButtonSegment(value: 33, label: Text('33')),
+                  ButtonSegment(value: 99, label: Text('99')),
+                  ButtonSegment(value: 100, label: Text('100')),
+                  ButtonSegment(value: 334, label: Text('334')),
+                ],
+                selected: {_target},
+                onSelectionChanged: (s) => setState(() => _target = s.first),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () => ref
+                        .read(ecosystemProvider.notifier)
+                        .resetTasbihAndLogSession(),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Clôturer & réinitialiser'),
+                  ),
+                  YitteStatusPill(
+                    icon: Icons.check_circle_outline_rounded,
+                    label:
+                        'Sessions personnelles : ${eco.personalZikrSessionsCount}',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Bloc Objectif Personnel (Cycle privé — compact en dessous)
+        YitteSurfaceCard(
           padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -305,33 +458,6 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  active.arabic,
-                  textDirection: TextDirection.rtl,
-                  textAlign: TextAlign.center,
-                  style: AppTheme.arabicStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 25,
-                  ),
-                ),
-              ),
-              if (active.transliteration.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Center(
-                  child: Text(
-                    active.transliteration,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontStyle: FontStyle.italic,
-                      fontSize: 12.5,
-                      color: tokens.goldAccent,
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 10),
               Text(
                 'Progression du cycle (privée) : ${eco.salawatMonthlyCount} / ${eco.salawatMonthlyTarget}',
                 style: Theme.of(context).textTheme.labelLarge,
@@ -341,7 +467,7 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                 borderRadius: BorderRadius.circular(6),
                 child: LinearProgressIndicator(
                   value: ratio,
-                  minHeight: 8,
+                  minHeight: 7,
                   backgroundColor: tokens.subtleFill,
                   valueColor:
                       const AlwaysStoppedAnimation<Color>(YitteColors.emerald),
@@ -404,112 +530,6 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                         .read(ecosystemProvider.notifier)
                         .resetSalawatCycle(),
                     child: Text('Nouveau cycle (${eco.salawatDurationDays}j)'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // Compteur Chapelet Tactile
-        YitteSurfaceCard(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              SegmentedButton<int>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: 33, label: Text('33')),
-                  ButtonSegment(value: 99, label: Text('99')),
-                  ButtonSegment(value: 100, label: Text('100')),
-                  ButtonSegment(value: 334, label: Text('334')),
-                ],
-                selected: {_target},
-                onSelectionChanged: (s) => setState(() => _target = s.first),
-              ),
-              const SizedBox(height: 16),
-              YittePulseHalo(
-                color: YitteColors.emerald,
-                triggerKey: eco.personalTasbihCount,
-                child: YitteProgressRing(
-                  progress: _target > 0
-                      ? ((eco.personalTasbihCount % _target == 0 &&
-                                  eco.personalTasbihCount > 0)
-                              ? 1.0
-                              : (eco.personalTasbihCount % _target) / _target)
-                      : 0.0,
-                  size: 184,
-                  strokeWidth: 7,
-                  color: tokens.goldAccent,
-                  trackColor: tokens.borderSubtle,
-                  child: GestureDetector(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      ref.read(ecosystemProvider.notifier).incrementTasbih();
-                      ref
-                          .read(ecosystemProvider.notifier)
-                          .incrementSalawat(step: 1);
-                    },
-                    child: Container(
-                      width: 152,
-                      height: 152,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: YitteColors.emerald,
-                        border: Border.all(
-                          color: tokens.goldAccent,
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const SanctuaryPrayerIcon(
-                            size: 24,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${eco.personalTasbihCount}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 36,
-                              fontWeight: FontWeight.w800,
-                              fontFeatures: [FontFeature.tabularFigures()],
-                            ),
-                          ),
-                          Text(
-                            '/ $_target',
-                            style: TextStyle(
-                              color: tokens.goldAccent,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => ref
-                        .read(ecosystemProvider.notifier)
-                        .resetTasbihAndLogSession(),
-                    icon: const Icon(Icons.refresh_rounded, size: 17),
-                    label: const Text('Clôturer & réinitialiser'),
-                  ),
-                  YitteStatusPill(
-                    icon: Icons.check_circle_outline_rounded,
-                    label:
-                        'Sessions personnelles : ${eco.personalZikrSessionsCount}',
                   ),
                 ],
               ),
@@ -878,7 +898,7 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
         ),
         const SizedBox(height: 10),
 
-        // Carte Formule & Progression Globale (Vert Émeraude + Or 1px)
+        // Carte Unifiée : Zikr à lire + Compteur Tactile Collectif directement dessous
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -888,50 +908,59 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
           ),
           child: Column(
             children: [
-              Text(
-                s.title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: YitteFonts.display,
-                  color: YitteColors.ivory,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w700,
+              // Progression compacte en tête
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      s.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: YitteFonts.display,
+                        color: YitteColors.ivory,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$displayedGlobal / ${s.targetCount}',
+                    style: const TextStyle(
+                      color: YitteColors.gold,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: ratio,
+                  minHeight: 6,
+                  backgroundColor: Colors.white.withValues(alpha: 0.16),
+                  valueColor:
+                      const AlwaysStoppedAnimation<Color>(YitteColors.gold),
                 ),
               ),
-              const SizedBox(height: 8),
-              if (s.formulaArabic.isNotEmpty)
-                Text(
-                  s.formulaArabic,
-                  textDirection: TextDirection.rtl,
-                  textAlign: TextAlign.center,
-                  style: AppTheme.arabicStyle(
-                    color: YitteColors.gold,
-                    fontSize: 26,
-                  ),
-                ),
-              if (s.formulaLabel.isNotEmpty)
-                Text(
-                  s.formulaLabel,
-                  style: TextStyle(
-                    color: YitteColors.ivory.withValues(alpha: 0.85),
-                    fontSize: 12.5,
-                  ),
-                ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 6),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'PROGRESSION GLOBALE',
+                    'Votre contribution : $displayedPersonal grains',
                     style: TextStyle(
-                      color: YitteColors.ivory.withValues(alpha: 0.72),
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.1,
+                      color: YitteColors.ivory.withValues(alpha: 0.82),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   Text(
-                    'Objectif : ${s.targetCount}',
+                    '${(ratio * 100).round()}%',
                     style: const TextStyle(
                       color: YitteColors.gold,
                       fontSize: 12,
@@ -940,109 +969,125 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                '$displayedGlobal',
-                style: const TextStyle(
-                  color: YitteColors.gold,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w800,
-                  fontFeatures: [FontFeature.tabularFigures()],
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Divider(
+                  height: 1,
+                  color: Colors.white.withValues(alpha: 0.16),
                 ),
               ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(
-                  value: ratio,
-                  minHeight: 8,
-                  backgroundColor: Colors.white.withValues(alpha: 0.16),
-                  valueColor:
-                      const AlwaysStoppedAnimation<Color>(YitteColors.gold),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
 
-        // Zone de comptage tactile + lots (+10 / +33 / +100) + Enregistrer
-        YitteSurfaceCard(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Votre contribution :',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  YitteStatusPill(label: '$displayedPersonal grains'),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (displayedGlobal >= s.targetCount)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: YitteColors.emeraldSoft,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: YitteColors.emerald),
-                  ),
-                  child: const Text(
-                    'Al-ḥamdu lillāh ! Objectif collectif atteint. Qu’Allah accepte notre Zikr.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: YitteColors.emerald,
-                    ),
-                  ),
-                )
-              else ...[
-                GestureDetector(
-                  onTap: () => addCount(1),
-                  child: Container(
-                    width: 132,
-                    height: 132,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: YitteColors.gold,
-                      border: Border.all(color: YitteColors.emerald, width: 2),
-                    ),
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.fingerprint_rounded,
-                          size: 38,
-                          color: YitteColors.inkDark,
+              // Zone unifiée Lecture + Clic (+1 GRAIN) sans séparation
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: displayedGlobal >= s.targetCount ? null : () => addCount(1),
+                child: Column(
+                  children: [
+                    if (s.formulaArabic.isNotEmpty)
+                      Text(
+                        s.formulaArabic,
+                        textDirection: TextDirection.rtl,
+                        textAlign: TextAlign.center,
+                        style: AppTheme.arabicStyle(
+                          color: YitteColors.gold,
+                          fontSize: 28,
                         ),
-                        SizedBox(height: 4),
-                        Text(
-                          '+1 GRAIN',
+                      ),
+                    if (s.formulaLabel.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        s.formulaLabel,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: YitteColors.ivory.withValues(alpha: 0.85),
+                          fontSize: 12.5,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    if (displayedGlobal >= s.targetCount)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: YitteColors.gold),
+                        ),
+                        child: const Text(
+                          'Al-ḥamdu lillāh ! Objectif collectif atteint. Qu’Allah accepte notre Zikr.',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: YitteColors.inkDark,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.8,
+                            fontWeight: FontWeight.w700,
+                            color: YitteColors.ivory,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
+                      )
+                    else ...[
+                      Container(
+                        width: 128,
+                        height: 128,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: YitteColors.gold,
+                          border: Border.all(color: YitteColors.ivory, width: 2),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.fingerprint_rounded,
+                              size: 30,
+                              color: YitteColors.inkDark,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '$displayedPersonal',
+                              style: const TextStyle(
+                                color: YitteColors.inkDark,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                            const Text(
+                              '+1 GRAIN',
+                              style: TextStyle(
+                                color: YitteColors.inkDark,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Appuyez sur la formule ou le cercle pour compter',
+                        style: TextStyle(
+                          color: YitteColors.ivory.withValues(alpha: 0.75),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  'Ajout rapide (si récité sur votre chapelet) :',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 8),
+              ),
+              if (displayedGlobal < s.targetCount) ...[
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: YitteColors.ivory,
+                          side: BorderSide(
+                            color: YitteColors.gold.withValues(alpha: 0.6),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
                         onPressed: () => addCount(10),
                         child: const Text('+10'),
                       ),
@@ -1050,6 +1095,13 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: YitteColors.ivory,
+                          side: BorderSide(
+                            color: YitteColors.gold.withValues(alpha: 0.6),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
                         onPressed: () => addCount(33),
                         child: const Text('+33'),
                       ),
@@ -1057,16 +1109,27 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: YitteColors.ivory,
+                          side: BorderSide(
+                            color: YitteColors.gold.withValues(alpha: 0.6),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
                         onPressed: () => addCount(100),
                         child: const Text('+100'),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: YitteColors.gold,
+                      foregroundColor: YitteColors.inkDark,
+                    ),
                     onPressed: saveBatch,
                     icon: const Icon(Icons.save_outlined, size: 18),
                     label: Text(

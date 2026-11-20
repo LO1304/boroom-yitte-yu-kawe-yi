@@ -31,6 +31,11 @@ class SpeechBridge {
 
   static JSObject? _activeRecognition;
   static JSObject? _activeAudio;
+  static JSObject? _ttsAudio;
+  static Timer? _wordTicker;
+  static int _speakToken = 0;
+  static void Function(bool isSpeaking)? _activeSpeakingCb;
+  static void Function(int wordIndex)? _activeWordCb;
 
   static bool get isTtsSupported {
     try {
@@ -78,10 +83,20 @@ class SpeechBridge {
     }
   }
 
-  static JSObject? _pickVoice(
+  static bool get _canUseLocalNeuralApi {
+    try {
+      final host = Uri.base.host.toLowerCase();
+      return host.isNotEmpty && !host.endsWith('github.io');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static ({JSObject voice, bool isNatural})? _pickBestVoice(
     JSObject synth,
     String locale, {
     required bool preferFemale,
+    String? voiceProfile,
   }) {
     try {
       final voicesAny = synth.callMethod('getVoices'.toJS);
@@ -91,24 +106,33 @@ class SpeechBridge {
 
       final targetLang = locale.toLowerCase();
       final shortLang = targetLang.split('-').first;
-      const femaleHints = [
-        'amy',
-        'sonia',
+      final profileHint = switch (voiceProfile) {
+        'amy-soft-uk' => 'libby',
+        'amy-clear-uk' => 'sonia',
+        'amy-warm-us' => 'emma',
+        'amy-fluent-us' => 'ava',
+        _ => '',
+      };
+
+      const naturalFemaleHints = [
+        'ava',
+        'emma',
         'libby',
-        'aria',
+        'sonia',
         'jenny',
-        'hazel',
+        'aria',
         'samantha',
+        'serena',
+        'martha',
+        'kate',
         'karen',
-        'victoria',
         'moira',
         'fiona',
-        'zira',
-        'susan',
-        'emma',
-        'female',
+        'amy',
         'google uk english female',
+        'google us english',
       ];
+      const legacyFemaleHints = ['zira', 'hazel', 'susan', 'victoria', 'female'];
       const maleHints = [
         'george',
         'david',
@@ -116,13 +140,16 @@ class SpeechBridge {
         'daniel',
         'guy',
         'ryan',
+        'brian',
+        'andrew',
+        'christopher',
         'male',
         'google uk english male',
       ];
 
-      JSObject? bestExactFemale;
-      JSObject? bestAnyEnFemale;
-      JSObject? bestExactAny;
+      JSObject? bestVoice;
+      bool bestIsNatural = false;
+      int bestScore = -9999;
 
       for (final vAny in list) {
         if (vAny == null || !vAny.isA<JSObject>()) continue;
@@ -138,59 +165,376 @@ class SpeechBridge {
         if (!vLang.startsWith(shortLang)) continue;
 
         final isExact = vLang == targetLang || vLang.startsWith(targetLang);
-        final isFemale = femaleHints.any((h) => name.contains(h));
+        final isNatural = name.contains('natural') ||
+            name.contains('neural') ||
+            name.contains('online') ||
+            name.contains('enhanced') ||
+            name.contains('premium');
+        final isGoogle = name.contains('google');
+        final isLegacyDesktop = name.contains('desktop') ||
+            name.contains('zira') ||
+            name.contains('david') ||
+            name.contains('hazel');
+        final isNaturalFemale = naturalFemaleHints.any((h) => name.contains(h));
+        final isLegacyFemale = legacyFemaleHints.any((h) => name.contains(h));
         final isMale = maleHints.any((h) => name.contains(h));
 
+        int score = 0;
+        if (isExact) score += 35;
+        if (profileHint.isNotEmpty && name.contains(profileHint)) score += 90;
+        if (isNatural) score += 120;
+        if (isGoogle) score += 85;
+        if (isLegacyDesktop) score -= 55;
         if (preferFemale) {
-          if (isExact && isFemale) return v;
-          if (isFemale && bestAnyEnFemale == null) bestAnyEnFemale = v;
-          if (isExact && !isMale && bestExactFemale == null) {
-            bestExactFemale = v;
-          }
+          if (isNaturalFemale) score += 50;
+          if (isLegacyFemale) score += 15;
+          if (isMale) score -= 140;
         }
-        if (isExact && bestExactAny == null) bestExactAny = v;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestVoice = v;
+          bestIsNatural = isNatural || isGoogle;
+        }
       }
 
-      if (preferFemale) {
-        return bestAnyEnFemale ?? bestExactFemale ?? bestExactAny;
-      }
-      return bestExactAny;
+      if (bestVoice == null) return null;
+      return (voice: bestVoice, isNatural: bestIsNatural);
     } catch (_) {
       return null;
+    }
+  }
+
+  static List<double> _buildWordCumulativeWeights(List<String> words) {
+    if (words.isEmpty) return const [];
+    final weights = <double>[];
+    double total = 0;
+    for (final w in words) {
+      final len = w.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').length.clamp(2, 14);
+      final pauseBonus = RegExp(r'[.!?;:]$').hasMatch(w)
+          ? 4.0
+          : (w.endsWith(',') ? 2.0 : 0.0);
+      total += len + pauseBonus;
+      weights.add(total);
+    }
+    return weights.map((v) => total > 0 ? v / total : 1.0).toList();
+  }
+
+  static void _playNeuralAudioUrl({
+    required String url,
+    required String fullText,
+    required double playbackRate,
+    required int token,
+    required String engineLabel,
+    String? fallbackAssetUrl,
+    required void Function() onFallbackWebSpeech,
+    void Function(bool isSpeaking)? onSpeakingChanged,
+    void Function(int wordIndex)? onWordIndex,
+    void Function(String engine)? onEngineUsed,
+  }) {
+    try {
+      final audioCtor = _window['Audio'];
+      if (audioCtor == null || !audioCtor.isA<JSFunction>()) {
+        onFallbackWebSpeech();
+        return;
+      }
+      final audio = (audioCtor as JSFunction).callAsConstructor<JSObject>(url.toJS);
+      audio['preload'] = 'auto'.toJS;
+      audio['playbackRate'] = playbackRate.clamp(0.7, 1.3).toJS;
+
+      final words = fullText
+          .trim()
+          .split(RegExp(r'\s+'))
+          .where((w) => w.isNotEmpty)
+          .toList();
+      final cumWeights = _buildWordCumulativeWeights(words);
+
+      void startWordSync() {
+        _wordTicker?.cancel();
+        _wordTicker = Timer.periodic(const Duration(milliseconds: 65), (_) {
+          if (token != _speakToken || _ttsAudio == null) {
+            _wordTicker?.cancel();
+            return;
+          }
+          try {
+            final durAny = audio['duration'];
+            final curAny = audio['currentTime'];
+            final dur = (durAny != null && durAny.isA<JSNumber>())
+                ? (durAny as JSNumber).toDartDouble
+                : 0.0;
+            final cur = (curAny != null && curAny.isA<JSNumber>())
+                ? (curAny as JSNumber).toDartDouble
+                : 0.0;
+            if (dur.isFinite && dur > 0.05 && cumWeights.isNotEmpty) {
+              final p = (cur / dur).clamp(0.0, 0.999);
+              int idx = 0;
+              for (int i = 0; i < cumWeights.length; i++) {
+                if (p <= cumWeights[i]) {
+                  idx = i;
+                  break;
+                }
+              }
+              onWordIndex?.call(idx);
+            }
+          } catch (_) {}
+        });
+      }
+
+      audio['onplay'] = ((JSAny? _) {
+        if (token != _speakToken) return;
+        onEngineUsed?.call(engineLabel);
+        onSpeakingChanged?.call(true);
+        startWordSync();
+      }).toJS;
+
+      audio['onended'] = ((JSAny? _) {
+        if (token != _speakToken) return;
+        _wordTicker?.cancel();
+        _ttsAudio = null;
+        onWordIndex?.call(-1);
+        onSpeakingChanged?.call(false);
+      }).toJS;
+
+      audio['onerror'] = ((JSAny? _) {
+        if (token != _speakToken) return;
+        _wordTicker?.cancel();
+        _ttsAudio = null;
+        if (fallbackAssetUrl != null && fallbackAssetUrl.isNotEmpty) {
+          _playNeuralAudioUrl(
+            url: fallbackAssetUrl,
+            fullText: fullText,
+            playbackRate: playbackRate,
+            token: token,
+            engineLabel: 'Voix Neurale Studio (Intégrée)',
+            fallbackAssetUrl: null,
+            onFallbackWebSpeech: onFallbackWebSpeech,
+            onSpeakingChanged: onSpeakingChanged,
+            onWordIndex: onWordIndex,
+            onEngineUsed: onEngineUsed,
+          );
+        } else {
+          onFallbackWebSpeech();
+        }
+      }).toJS;
+
+      _ttsAudio = audio;
+      final playPromise = audio.callMethod('play'.toJS);
+      if (playPromise != null && playPromise.isA<JSPromise>()) {
+        (playPromise as JSPromise).toDart.catchError((_) {
+          if (token == _speakToken) {
+            _wordTicker?.cancel();
+            _ttsAudio = null;
+            onFallbackWebSpeech();
+          }
+          return null;
+        });
+      }
+    } catch (_) {
+      onFallbackWebSpeech();
+    }
+  }
+
+  static void _speakWithNaturalWebSpeech({
+    required String text,
+    required String locale,
+    required double rate,
+    required bool preferFemale,
+    String? voiceProfile,
+    required int token,
+    void Function(bool isSpeaking)? onSpeakingChanged,
+    void Function(int wordIndex)? onWordIndex,
+    void Function(String engine)? onEngineUsed,
+  }) {
+    try {
+      final synthAny = _window['speechSynthesis'];
+      if (synthAny == null || !synthAny.isA<JSObject>()) {
+        onSpeakingChanged?.call(false);
+        return;
+      }
+      final synth = synthAny as JSObject;
+      synth.callMethod('cancel'.toJS);
+
+      final chunks = text
+          .trim()
+          .split(RegExp(r'(?<=[.!?;])\s+'))
+          .where((c) => c.trim().isNotEmpty)
+          .toList();
+      if (chunks.isEmpty) return;
+
+      final picked = _pickBestVoice(
+        synth,
+        locale,
+        preferFemale: preferFemale,
+        voiceProfile: voiceProfile,
+      );
+      final engineName = picked?.isNatural == true
+          ? 'Voix Naturelle Navigateur'
+          : 'Synthèse Vocale Locale';
+      onEngineUsed?.call(engineName);
+
+      // Compute starting global word offset per sentence chunk for exact karaoke sync
+      final chunkWordOffsets = <int>[];
+      int runningWords = 0;
+      for (final c in chunks) {
+        chunkWordOffsets.add(runningWords);
+        runningWords +=
+            c.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+      }
+
+      void speakChunk(int chunkIdx) {
+        if (token != _speakToken) return;
+        if (chunkIdx >= chunks.length) {
+          onWordIndex?.call(-1);
+          onSpeakingChanged?.call(false);
+          return;
+        }
+        final chunk = chunks[chunkIdx];
+        final baseWordIdx = chunkWordOffsets[chunkIdx];
+        final utt = _SpeechUtterance(chunk.toJS);
+        utt.lang = locale.toJS;
+        utt.rate = rate.clamp(0.65, 1.3).toJS;
+        utt.pitch = (picked?.isNatural == true ? 1.0 : (preferFemale ? 1.03 : 1.0)).toJS;
+        if (picked != null) {
+          utt.voice = picked.voice;
+        }
+
+        utt['onstart'] = ((JSAny? _) {
+          if (token != _speakToken) return;
+          if (chunkIdx == 0) onSpeakingChanged?.call(true);
+          onWordIndex?.call(baseWordIdx);
+        }).toJS;
+
+        utt['onboundary'] = ((JSObject ev) {
+          if (token != _speakToken) return;
+          final charAny = ev['charIndex'];
+          if (charAny != null && charAny.isA<JSNumber>()) {
+            final charIdx = (charAny as JSNumber).toDartInt.clamp(0, chunk.length);
+            final prefix = chunk.substring(0, charIdx).trim();
+            final localIdx = prefix.isEmpty
+                ? 0
+                : prefix.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+            onWordIndex?.call(baseWordIdx + localIdx);
+          }
+        }).toJS;
+
+        utt['onend'] = ((JSAny? _) {
+          if (token != _speakToken) return;
+          speakChunk(chunkIdx + 1);
+        }).toJS;
+
+        utt['onerror'] = ((JSAny? _) {
+          if (token != _speakToken) return;
+          onWordIndex?.call(-1);
+          onSpeakingChanged?.call(false);
+        }).toJS;
+
+        synth.callMethod('speak'.toJS, utt);
+      }
+
+      speakChunk(0);
+    } catch (_) {
+      onSpeakingChanged?.call(false);
     }
   }
 
   static void speak(
     String text, {
     String locale = 'en-GB',
-    double rate = 0.94,
+    double rate = 0.96,
     bool preferFemale = false,
+    String? voiceProfile,
+    String? bundledAssetPath,
+    void Function(bool isSpeaking)? onSpeakingChanged,
+    void Function(int wordIndex)? onWordIndex,
+    void Function(String engine)? onEngineUsed,
   }) {
-    try {
-      final synthAny = _window['speechSynthesis'];
-      if (synthAny == null || !synthAny.isA<JSObject>()) return;
-      final synth = synthAny as JSObject;
-      synth.callMethod('cancel'.toJS);
-      final utt = _SpeechUtterance(text.toJS);
-      utt.lang = locale.toJS;
-      utt.rate = rate.clamp(0.6, 1.3).toJS;
-      utt.pitch = (preferFemale ? 1.06 : 1.0).toJS;
-      final chosen = _pickVoice(synth, locale, preferFemale: preferFemale);
-      if (chosen != null) {
-        utt.voice = chosen;
-      }
-      synth.callMethod('speak'.toJS, utt);
-    } catch (_) {
-      // Ignore smoothly if browser audio is blocked or unsupported
+    final clean = text.trim();
+    if (clean.isEmpty) return;
+
+    stopSpeaking();
+    final token = ++_speakToken;
+    _activeSpeakingCb = onSpeakingChanged;
+    _activeWordCb = onWordIndex;
+
+    final assetUrl = (bundledAssetPath != null && bundledAssetPath.isNotEmpty)
+        ? 'assets/$bundledAssetPath'
+        : null;
+
+    void fallbackWebSpeech() => _speakWithNaturalWebSpeech(
+          text: clean,
+          locale: locale,
+          rate: rate,
+          preferFemale: preferFemale,
+          voiceProfile: voiceProfile,
+          token: token,
+          onSpeakingChanged: onSpeakingChanged,
+          onWordIndex: onWordIndex,
+          onEngineUsed: onEngineUsed,
+        );
+
+    // 1. Local/LAN server Neural Studio TTS (/api/tts with Edge Neural / ElevenLabs / OpenAI)
+    if (_canUseLocalNeuralApi) {
+      final resolvedVoice = voiceProfile ??
+          (locale.toLowerCase().startsWith('en-gb')
+              ? 'amy-soft-uk'
+              : 'amy-fluent-us');
+      final ttsUrl =
+          '/api/tts?text=${Uri.encodeQueryComponent(clean)}&voice=${Uri.encodeQueryComponent(resolvedVoice)}&locale=${Uri.encodeQueryComponent(locale)}&rate=${rate.toStringAsFixed(2)}';
+      _playNeuralAudioUrl(
+        url: ttsUrl,
+        fullText: clean,
+        playbackRate: 1.0, // rate already synthesized naturally by Neural TTS
+        token: token,
+        engineLabel: 'Voix Neurale Studio',
+        fallbackAssetUrl: assetUrl,
+        onFallbackWebSpeech: fallbackWebSpeech,
+        onSpeakingChanged: onSpeakingChanged,
+        onWordIndex: onWordIndex,
+        onEngineUsed: onEngineUsed,
+      );
+      return;
     }
+
+    // 2. Static GitHub Pages: bundled Studio Neural MP3 when available (scenario openings)
+    if (assetUrl != null) {
+      _playNeuralAudioUrl(
+        url: assetUrl,
+        fullText: clean,
+        playbackRate: rate.clamp(0.75, 1.25),
+        token: token,
+        engineLabel: 'Voix Neurale Studio (Intégrée)',
+        fallbackAssetUrl: null,
+        onFallbackWebSpeech: fallbackWebSpeech,
+        onSpeakingChanged: onSpeakingChanged,
+        onWordIndex: onWordIndex,
+        onEngineUsed: onEngineUsed,
+      );
+      return;
+    }
+
+    // 3. Static dynamic replies: upgraded Natural/Neural Browser Speech Engine
+    fallbackWebSpeech();
   }
 
   static void stopSpeaking() {
+    _speakToken++;
+    _wordTicker?.cancel();
+    _wordTicker = null;
+    try {
+      _ttsAudio?.callMethod('pause'.toJS);
+      _ttsAudio?['currentTime'] = 0.toJS;
+    } catch (_) {}
+    _ttsAudio = null;
     try {
       final synthAny = _window['speechSynthesis'];
-      if (synthAny == null || !synthAny.isA<JSObject>()) return;
-      (synthAny as JSObject).callMethod('cancel'.toJS);
+      if (synthAny != null && synthAny.isA<JSObject>()) {
+        (synthAny as JSObject).callMethod('cancel'.toJS);
+      }
     } catch (_) {}
+    _activeWordCb?.call(-1);
+    _activeSpeakingCb?.call(false);
+    _activeWordCb = null;
+    _activeSpeakingCb = null;
   }
 
   static bool startDictation({

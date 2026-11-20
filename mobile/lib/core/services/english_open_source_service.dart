@@ -1175,13 +1175,14 @@ class EnglishOpenSourceService {
   ];
 
   // ═══════════════════════════════════════════════════════════════════════
-  // AMY — PROFESSEURE & PARTENAIRE DE CONVERSATION IA (VOIX FÉMININE EN)
+  // AMY — PROFESSEURE & PARTENAIRE DE CONVERSATION IA (INSPIRÉ D'ENGLISH AI)
   // ═══════════════════════════════════════════════════════════════════════
   static const List<AmyScenario> amyScenarios = [
     AmyScenario(
       id: 'intro',
       titleFr: 'Se présenter',
       levelRange: 'A1–A2',
+      openingAssetPath: 'assets/audio/amy/intro.mp3',
       openingEn:
           "Hello! I'm Amy, your English speaking partner at BOROOM YITTÉ. Let's practise together! Could you introduce yourself and tell me what you study or work on?",
       openingFr:
@@ -1194,11 +1195,17 @@ class EnglishOpenSourceService {
       ],
       sampleTargetEn:
           "Hello Amy, my name is Aminata. I study engineering and I joined BOROOM YITTÉ in 2026 to speak English confidently.",
+      suggestedRepliesEn: [
+        "Hello Amy! My name is Moussa and I study computer science in Dakar.",
+        "Hi Amy, I work in engineering and I joined BOROOM YITTÉ in 2026 to become fluent.",
+        "Nice to meet you! I want to practise speaking English for twenty minutes every day.",
+      ],
     ),
     AmyScenario(
       id: 'interview',
       titleFr: 'Entretien pro',
       levelRange: 'B1–B2',
+      openingAssetPath: 'assets/audio/amy/interview.mp3',
       openingEn:
           "Good morning! I'm Amy, and today I'll be your interviewer. Take a deep breath and answer clearly: Tell me about yourself and one achievement you are proud of.",
       openingFr:
@@ -1211,11 +1218,17 @@ class EnglishOpenSourceService {
       ],
       sampleTargetEn:
           "I am a motivated graduate with hands-on project experience. Recently, I coordinated a team task and delivered results ahead of schedule.",
+      suggestedRepliesEn: [
+        "I am a dedicated engineer who enjoys solving practical problems with my team.",
+        "Last year, I led a project where we reduced delays by thirty percent.",
+        "One strength I bring is clear communication, and I am currently sharpening my leadership skills.",
+      ],
     ),
     AmyScenario(
       id: 'daily',
       titleFr: 'Vie quotidienne',
       levelRange: 'A2–B1',
+      openingAssetPath: 'assets/audio/amy/daily.mp3',
       openingEn:
           "Hi! It's Amy. Imagine we just met at a café in London after a conference. How was your morning, and what would you like to order?",
       openingFr:
@@ -1228,11 +1241,17 @@ class EnglishOpenSourceService {
       ],
       sampleTargetEn:
           "Good morning! My morning was busy but productive. Could I have a green tea and a bottle of water, please?",
+      suggestedRepliesEn: [
+        "My morning was great, thank you! Could I have a cup of tea and a croissant, please?",
+        "I walked here because the weather is lovely today.",
+        "Excuse me, could you tell me how to get to the nearest library?",
+      ],
     ),
     AmyScenario(
       id: 'project',
       titleFr: 'Présenter un projet',
       levelRange: 'B2',
+      openingAssetPath: 'assets/audio/amy/project.mp3',
       openingEn:
           "Welcome back! I'm Amy. Pitch me a real project you care about — in science, agriculture, tech, medicine or business. What problem does it solve?",
       openingFr:
@@ -1245,11 +1264,17 @@ class EnglishOpenSourceService {
       ],
       sampleTargetEn:
           "Our project addresses water waste in agriculture by using low-cost moisture sensors to optimise irrigation schedules.",
+      suggestedRepliesEn: [
+        "Our project helps local farmers save water using simple moisture sensors.",
+        "We are building a mobile learning platform to help students master English and technology.",
+        "The main challenge is funding, so we are starting with a small pilot group first.",
+      ],
     ),
     AmyScenario(
       id: 'debate',
       titleFr: 'Débat & Nuance',
       levelRange: 'C1',
+      openingAssetPath: 'assets/audio/amy/debate.mp3',
       openingEn:
           "Hello! Amy here for our C1 speaking seminar. Here is today's motion: Does artificial intelligence strengthen or weaken human critical thinking? Give me a nuanced stance.",
       openingFr:
@@ -1262,11 +1287,17 @@ class EnglishOpenSourceService {
       ],
       sampleTargetEn:
           "Although AI accelerates research, it only strengthens critical thinking provided that learners actively verify every claim.",
+      suggestedRepliesEn: [
+        "Although AI saves time, it can weaken critical thinking if students stop verifying sources.",
+        "On balance, technology is a powerful tool provided that we keep human judgment at the centre.",
+        "For example, in research, AI can draft summaries, yet only careful reading builds true expertise.",
+      ],
     ),
     AmyScenario(
       id: 'shadowing',
       titleFr: 'Prononciation',
       levelRange: 'Tous niveaux',
+      openingAssetPath: 'assets/audio/amy/shadowing.mp3',
       openingEn:
           "Hi! Let's train your pronunciation together with shadowing. Listen carefully and repeat aloud: 'Although three thoughtful thinkers worked through the afternoon, they remained thoroughly focused.'",
       openingFr:
@@ -1279,6 +1310,11 @@ class EnglishOpenSourceService {
       ],
       sampleTargetEn:
           "Although three thoughtful thinkers worked through the afternoon, they remained thoroughly focused.",
+      suggestedRepliesEn: [
+        "Although three thoughtful thinkers worked through the afternoon, they remained thoroughly focused.",
+        "Henry hopes his honest habits help him handle hard challenges.",
+        "We worked hard, learned fast, and decided to improve every day.",
+      ],
     ),
   ];
 
@@ -1354,7 +1390,62 @@ class EnglishOpenSourceService {
     ),
   ];
 
-  /// Moteur de conversation multi-tours avec Amy (correction LanguageTool + réponse anglaise orale + relance).
+  /// Évalue une phrase répétée à voix haute (Shadowing façon English AI) mot par mot.
+  static ShadowingEvaluation evaluateShadowing({
+    required String targetSentence,
+    required String spokenText,
+  }) {
+    String cleanWord(String w) =>
+        w.toLowerCase().replaceAll(RegExp(r"[^a-z0-9']"), '');
+
+    final rawTarget = targetSentence
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => cleanWord(w).isNotEmpty)
+        .toList();
+    final spokenSet = spokenText
+        .trim()
+        .split(RegExp(r'\s+'))
+        .map(cleanWord)
+        .where((w) => w.isNotEmpty)
+        .toSet();
+
+    if (rawTarget.isEmpty) {
+      return const ShadowingEvaluation(
+        scorePercent: 0,
+        wordResults: [],
+        feedbackFr: 'Sélectionnez une phrase à répéter.',
+      );
+    }
+
+    int matched = 0;
+    final results = <ShadowingWordResult>[];
+    for (final raw in rawTarget) {
+      final norm = cleanWord(raw);
+      final hit = spokenSet.contains(norm) ||
+          (norm.length >= 4 &&
+              spokenSet.any(
+                (s) => s.startsWith(norm.substring(0, norm.length - 1)),
+              ));
+      if (hit) matched++;
+      results.add(ShadowingWordResult(word: raw, matched: hit));
+    }
+
+    final pct = ((matched / rawTarget.length) * 100).round().clamp(0, 100);
+    final feedback = pct >= 90
+        ? 'Excellente fluidité ($pct%) ! Prononciation très claire et rythme naturel.'
+        : pct >= 70
+            ? 'Bon rythme ($pct%) ! Répétez les mots surlignés en or en mode lent (0.8×) pour affiner l’articulation.'
+            : 'Bien essayé ($pct%) ! Écoutez Amy en mode lent puis répétez par petits groupes de 3–4 mots.';
+
+    return ShadowingEvaluation(
+      scorePercent: pct,
+      wordResults: results,
+      feedbackFr: feedback,
+    );
+  }
+
+  /// Moteur de conversation multi-tours avec Amy (façon English AI : fluidité, correction inline, réaction contextuelle, suggestions).
   Future<AmyTurnReply> converseWithAmy({
     required String userInput,
     required AmyScenario scenario,
@@ -1368,17 +1459,33 @@ class EnglishOpenSourceService {
         amySpeechEn: scenario.openingEn,
         amyTranslationFr: scenario.openingFr,
         correctionNote: null,
+        correctedText: null,
         nativeUpgrade: null,
         nextPromptEn: scenario.openingEn,
+        fluencyScore: 0,
+        suggestedRepliesEn: scenario.suggestedRepliesEn,
       );
     }
 
     final check = await checkGrammarLive(trimmed, language: variant);
     final hasIssues = check.issues.isNotEmpty;
     final words = trimmed.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    final lower = trimmed.toLowerCase();
     final engineLabel = check.usedOnlineApi
         ? 'LanguageTool en direct'
         : 'Correcteur FR→EN';
+
+    // Score de fluidité (0–100) façon English AI
+    int score = 74;
+    if (words >= 8) score += 8;
+    if (words >= 15) score += 6;
+    if (RegExp(r'\b(because|although|however|therefore|actually|currently|finally|for example)\b')
+        .hasMatch(lower)) {
+      score += 7;
+    }
+    score -= (check.issues.length * 8);
+    if (words < 4) score -= 14;
+    final fluencyScore = score.clamp(45, 99);
 
     String? correctionNote;
     if (hasIssues) {
@@ -1390,7 +1497,7 @@ class EnglishOpenSourceService {
           'Correction d’Amy ($engineLabel) :\n• $firstIssues\nPhrase corrigée : "${check.correctedText}"';
     } else if (words < 5) {
       correctionNote =
-          'Conseil d’Amy : votre réponse est correcte, essayez d’allonger avec une raison ("because...") ou un exemple ("for example...") pour muscler votre fluidité !';
+          'Conseil d’Amy : phrase correcte ! Ajoutez une raison ("because...") ou un exemple ("for example...") pour gagner en aisance orale.';
     }
 
     final upgraded = _buildNativeUpgrade(check.correctedText, scenario.id);
@@ -1398,24 +1505,92 @@ class EnglishOpenSourceService {
         ? scenario.followUpsEn[turnIndex % scenario.followUpsEn.length]
         : "That's very interesting! Could you tell me a bit more about that?";
 
-    final reactionEn = hasIssues
-        ? "Thank you for sharing! I understood you clearly — just remember to say: \"${check.correctedText}\"."
-        : (words >= 12
-            ? "Well expressed! Your sentence structure is clear and natural."
-            : "Good answer! Clear and direct.");
+    // Réaction contextuelle fluide (comme English AI)
+    String contextualAck;
+    if (hasIssues) {
+      contextualAck =
+          "I understood you clearly — a smooth way to say that is: \"${check.correctedText}\".";
+    } else if (lower.contains('engineer') ||
+        lower.contains('tech') ||
+        lower.contains('computer') ||
+        lower.contains('developer')) {
+      contextualAck =
+          "That sounds fascinating! Speaking English clearly will open huge international opportunities in tech and engineering.";
+    } else if (lower.contains('agronom') ||
+        lower.contains('farm') ||
+        lower.contains('water') ||
+        lower.contains('environment')) {
+      contextualAck =
+          "What an impactful field! Clear English helps share agricultural innovation worldwide.";
+    } else if (lower.contains('doctor') ||
+        lower.contains('medicine') ||
+        lower.contains('health') ||
+        lower.contains('student')) {
+      contextualAck =
+          "Wonderful! Your dedication to your studies and to BOROOM YITTÉ really shines through.";
+    } else if (lower.contains('2026') || lower.contains('boroom')) {
+      contextualAck =
+          "I love that! Joining BOROOM YITTÉ in 2026 with a daily speaking habit is a brilliant decision.";
+    } else if (words >= 12) {
+      contextualAck =
+          "Well expressed! Your rhythm and sentence structure sounded very natural.";
+    } else {
+      contextualAck = "Good, clear answer!";
+    }
 
-    final amySpeechEn = '$reactionEn $followUp';
+    final amySpeechEn = '$contextualAck $followUp';
     final amyTranslationFr = hasIssues
-        ? 'Amy vous a bien compris, a corrigé votre tournure et relance l’échange. Cliquez sur « Écouter Amy » pour travailler votre oreille !'
-        : 'Très bien formulé ! Amy poursuit la conversation — répondez au micro ou à l’écrit.';
+        ? 'Amy vous a bien compris, vous propose une formulation plus fluide et relance la conversation.'
+        : 'Très bien exprimé (Fluidité $fluencyScore/100) ! Amy poursuit l’échange en anglais.';
+
+    // Suggestions de réponse pour le tour suivant (façon English AI "Idées de réponse")
+    final nextSuggestions = _buildFollowUpHints(scenario.id, turnIndex);
 
     return AmyTurnReply(
       amySpeechEn: amySpeechEn,
       amyTranslationFr: amyTranslationFr,
       correctionNote: correctionNote,
+      correctedText: hasIssues ? check.correctedText : null,
       nativeUpgrade: upgraded,
       nextPromptEn: followUp,
+      fluencyScore: fluencyScore,
+      suggestedRepliesEn: nextSuggestions,
     );
+  }
+
+  List<String> _buildFollowUpHints(String scenarioId, int turnIndex) {
+    return switch (scenarioId) {
+      'interview' => const [
+          'In that situation, I analysed the bottleneck, coordinated with teammates, and solved it in two days.',
+          'My biggest strength is consistency, and right now I am sharpening my public speaking in English.',
+          'In three years, I aim to lead impactful projects while mentoring younger colleagues.',
+        ],
+      'daily' => const [
+          'I took the bus this morning, and the trip was smooth and pleasant.',
+          'Excuse me, could you please tell me the quickest way to the central library?',
+          'Could you let me know when the next update about our boarding gate will be announced?',
+        ],
+      'project' => const [
+          'Local students and communities benefit directly because the tool works even with low connectivity.',
+          'Our main risk is adoption, so we are testing early feedback with real users every week.',
+          'In short, our solution cuts waste by thirty percent while staying affordable and simple to maintain.',
+        ],
+      'debate' => const [
+          'That is a valid concern; however, guided critical reading paired with AI can deepen understanding.',
+          'For instance, when students verify AI summaries against original texts, they retain far more knowledge.',
+          'Above all, young scholars should treat AI as an assistant rather than a substitute for thinking.',
+        ],
+      'shadowing' => const [
+          'Henry hopes his honest habits help him handle hard challenges.',
+          'We worked hard, learned fast, and decided to improve every day.',
+          'We must develop a clear project and present our results with confidence.',
+        ],
+      _ => [
+          'I decided to improve my English in 2026 to communicate confidently in international projects.',
+          'In my free time, I enjoy reading, learning new skills, and debating ideas with BOROOM YITTÉ.',
+          'I can commit twenty-five minutes every morning to listening and speaking aloud with you.',
+        ],
+    };
   }
 
   String? _buildNativeUpgrade(String cleanText, String scenarioId) {
@@ -1444,19 +1619,23 @@ class AmyScenario {
   final String id;
   final String titleFr;
   final String levelRange;
+  final String openingAssetPath;
   final String openingEn;
   final String openingFr;
   final List<String> followUpsEn;
   final String sampleTargetEn;
+  final List<String> suggestedRepliesEn;
 
   const AmyScenario({
     required this.id,
     required this.titleFr,
     required this.levelRange,
+    required this.openingAssetPath,
     required this.openingEn,
     required this.openingFr,
     required this.followUpsEn,
     required this.sampleTargetEn,
+    required this.suggestedRepliesEn,
   });
 }
 
@@ -1464,15 +1643,40 @@ class AmyTurnReply {
   final String amySpeechEn;
   final String amyTranslationFr;
   final String? correctionNote;
+  final String? correctedText;
   final String? nativeUpgrade;
   final String nextPromptEn;
+  final int fluencyScore;
+  final List<String> suggestedRepliesEn;
 
   const AmyTurnReply({
     required this.amySpeechEn,
     required this.amyTranslationFr,
     this.correctionNote,
+    this.correctedText,
     this.nativeUpgrade,
     required this.nextPromptEn,
+    this.fluencyScore = 85,
+    this.suggestedRepliesEn = const [],
+  });
+}
+
+class ShadowingWordResult {
+  final String word;
+  final bool matched;
+
+  const ShadowingWordResult({required this.word, required this.matched});
+}
+
+class ShadowingEvaluation {
+  final int scorePercent;
+  final List<ShadowingWordResult> wordResults;
+  final String feedbackFr;
+
+  const ShadowingEvaluation({
+    required this.scorePercent,
+    required this.wordResults,
+    required this.feedbackFr,
   });
 }
 

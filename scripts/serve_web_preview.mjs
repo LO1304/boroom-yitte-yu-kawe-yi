@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,8 +14,18 @@ const DATA_DIR = path.join(ROOT, 'server', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+const TTS_CACHE_DIR = path.join(DATA_DIR, 'tts_cache');
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.FLUTTER_WEB_PORT || process.env.PORT || 8080);
+
+const NEURAL_VOICE_MAP = {
+  'amy-fluent-us': 'en-US-AvaMultilingualNeural',
+  'amy-soft-uk': 'en-GB-LibbyNeural',
+  'amy-clear-uk': 'en-GB-SoniaNeural',
+  'amy-warm-us': 'en-US-EmmaMultilingualNeural',
+  'en-gb': 'en-GB-LibbyNeural',
+  'en-us': 'en-US-AvaMultilingualNeural',
+};
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -30,6 +41,10 @@ const MIME = {
   '.otf': 'font/otf',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.webm': 'audio/webm',
   '.ico': 'image/x-icon',
 };
 
@@ -342,6 +357,118 @@ function readJsonBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function resolveNeuralVoice(voiceKey, locale) {
+  const k = String(voiceKey || '').trim().toLowerCase();
+  if (NEURAL_VOICE_MAP[k]) return NEURAL_VOICE_MAP[k];
+  const loc = String(locale || 'en-US').trim().toLowerCase();
+  if (NEURAL_VOICE_MAP[loc]) return NEURAL_VOICE_MAP[loc];
+  return 'en-US-AvaMultilingualNeural';
+}
+
+async function synthesizeNeuralTts({ text, voiceKey, locale, rate, env }) {
+  const cleanText = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 900);
+  if (!cleanText) throw new Error('Texte vide pour la synthèse vocale.');
+
+  const numRate = Math.min(1.25, Math.max(0.7, Number(rate) || 0.96));
+  const ratePct = Math.round((numRate - 1.0) * 100);
+  const rateArg = `${ratePct >= 0 ? '+' : ''}${ratePct}%`;
+  const neuralVoice = resolveNeuralVoice(voiceKey, locale);
+
+  fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
+  const providerTag =
+    env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID
+      ? `el_${env.ELEVENLABS_VOICE_ID}`
+      : env.OPENAI_API_KEY
+        ? 'oai_shimmer'
+        : `edge_${neuralVoice}`;
+  const hash = crypto
+    .createHash('sha256')
+    .update(`${providerTag}|${rateArg}|${cleanText}`)
+    .digest('hex')
+    .slice(0, 24);
+  const cacheFile = path.join(TTS_CACHE_DIR, `${hash}.mp3`);
+
+  if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 256) {
+    return { filePath: cacheFile, engine: `${providerTag}:cached` };
+  }
+
+  // Tier 1: ElevenLabs Cloned Voice if configured in .env
+  if (env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID) {
+    const elRes = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(env.ELEVENLABS_VOICE_ID.trim())}`,
+      {
+        method: 'POST',
+        headers: {
+          'xi-api-key': env.ELEVENLABS_API_KEY.trim(),
+          'Content-Type': 'application/json',
+          Accept: 'audio/mpeg',
+        },
+        body: JSON.stringify({
+          text: cleanText,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: { stability: 0.55, similarity_boost: 0.82, style: 0.25 },
+        }),
+      },
+    );
+    if (elRes.ok) {
+      const buf = Buffer.from(await elRes.arrayBuffer());
+      fs.writeFileSync(cacheFile, buf);
+      return { filePath: cacheFile, engine: 'elevenlabs-clone' };
+    }
+  }
+
+  // Tier 2: OpenAI HD Female Neural Voice if configured in .env
+  if (env.OPENAI_API_KEY && env.OPENAI_API_KEY.trim()) {
+    const oaiRes = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY.trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'tts-1-hd',
+        voice: 'shimmer',
+        speed: numRate,
+        input: cleanText,
+      }),
+    });
+    if (oaiRes.ok) {
+      const buf = Buffer.from(await oaiRes.arrayBuffer());
+      fs.writeFileSync(cacheFile, buf);
+      return { filePath: cacheFile, engine: 'openai-hd' };
+    }
+  }
+
+  // Tier 3 (Default, Free & Studio Quality): Microsoft Edge Neural Voice via python -m edge_tts
+  const tmpFile = `${cacheFile}.${Date.now()}.tmp.mp3`;
+  await new Promise((resolve, reject) => {
+    execFile(
+      'python',
+      [
+        '-m',
+        'edge_tts',
+        '--voice',
+        neuralVoice,
+        `--rate=${rateArg}`,
+        '--text',
+        cleanText,
+        '--write-media',
+        tmpFile,
+      ],
+      { timeout: 20000, windowsHide: true },
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      },
+    );
+  });
+  if (!fs.existsSync(tmpFile) || fs.statSync(tmpFile).size < 128) {
+    throw new Error('Fichier audio neural non généré.');
+  }
+  fs.renameSync(tmpFile, cacheFile);
+  return { filePath: cacheFile, engine: 'edge-neural' };
 }
 
 if (!fs.existsSync(path.join(WEB_DIR, 'index.html'))) {
@@ -820,6 +947,45 @@ const server = http.createServer(async (req, res) => {
       }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, error: String(e) }));
+    }
+    return;
+  }
+
+  if (cleanPath === '/api/tts' && (req.method === 'GET' || req.method === 'POST')) {
+    try {
+      const body = req.method === 'POST' ? await readJsonBody(req) : {};
+      const text = req.method === 'POST'
+        ? body.text
+        : urlObj.searchParams.get('text');
+      const voiceKey = req.method === 'POST'
+        ? body.voice
+        : urlObj.searchParams.get('voice');
+      const locale = req.method === 'POST'
+        ? body.locale
+        : urlObj.searchParams.get('locale');
+      const rate = req.method === 'POST'
+        ? body.rate
+        : urlObj.searchParams.get('rate');
+
+      const env = loadDotEnv();
+      const { filePath, engine } = await synthesizeNeuralTts({
+        text,
+        voiceKey,
+        locale,
+        rate,
+        env,
+      });
+      const stat = fs.statSync(filePath);
+      res.writeHead(200, {
+        'Content-Type': 'audio/mpeg',
+        'Content-Length': stat.size,
+        'Cache-Control': 'public, max-age=86400',
+        'X-TTS-Engine': engine,
+      });
+      fs.createReadStream(filePath).pipe(res);
+    } catch (e) {
+      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: false, error: String(e) }));
     }
     return;

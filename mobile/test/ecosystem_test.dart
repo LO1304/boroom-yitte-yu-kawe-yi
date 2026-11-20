@@ -864,6 +864,15 @@ void main() {
       cefrLevel: 'B1',
     );
     expect(amyReply.amySpeechEn, contains('2026'));
+    expect(amyReply.fluencyScore, inInclusiveRange(50, 99));
+    expect(amyReply.suggestedRepliesEn.length, greaterThanOrEqualTo(3));
+
+    final shadowEval = EnglishOpenSourceService.evaluateShadowing(
+      targetSentence: 'We worked hard and learned fast every day.',
+      spokenText: 'We worked hard and learned every day',
+    );
+    expect(shadowEval.scorePercent, greaterThanOrEqualTo(80));
+    expect(shadowEval.wordResults.length, 8);
 
     await tester.pumpWidget(_wrapScreen(const ZikrScreen()));
     await tester.pumpAndSettle();

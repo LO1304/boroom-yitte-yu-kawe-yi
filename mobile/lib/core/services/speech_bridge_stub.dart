@@ -13,8 +13,13 @@ class SpeechBridge {
   static void speak(
     String text, {
     String locale = 'en-GB',
-    double rate = 0.94,
+    double rate = 0.96,
     bool preferFemale = false,
+    String? voiceProfile,
+    String? bundledAssetPath,
+    void Function(bool isSpeaking)? onSpeakingChanged,
+    void Function(int wordIndex)? onWordIndex,
+    void Function(String engine)? onEngineUsed,
   }) {}
 
   static void stopSpeaking() {}

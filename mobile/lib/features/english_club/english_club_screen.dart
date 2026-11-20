@@ -29,9 +29,22 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   final _amyInputCtrl = TextEditingController();
   int _amyScenarioIdx = 0;
   bool _amyAutoSpeak = true;
-  bool _amySlowMode = false;
+  String _amyVoiceProfile = 'amy-fluent-us'; // amy-fluent-us (Ava), amy-soft-uk (Libby), amy-clear-uk (Sonia)
+  double _amyRate = 0.96; // 0.78 (Lent), 0.96 (Fluide), 1.14 (Natif)
   bool _amyBusy = false;
   bool _amyListening = false;
+  bool _amySpeaking = false;
+  int? _speakingMessageIdx;
+  int _speakingWordIdx = -1;
+  String _amyVoiceEngineLabel = 'Voix Neurale Studio';
+  final Set<int> _revealedTranslations = {0};
+  bool _showAmyHints = true;
+  List<String> _amyHints = const [];
+  String? _tappedWord;
+  String? _tappedWordInfo;
+  bool _tappedWordLoading = false;
+  String? _shadowingTarget;
+  ShadowingEvaluation? _shadowingEval;
   final List<_AmyChatMessage> _amyMessages = [];
   final _dictLookupCtrl = TextEditingController(text: 'resilience');
   final _ltCheckCtrl = TextEditingController(
@@ -143,11 +156,97 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     _resetAmyScenario(0, speakNow: false);
   }
 
+  void _speakAsAmy(
+    String text, {
+    int? messageIdx,
+    double? overrideRate,
+    String? bundledAssetPath,
+  }) {
+    final effectiveLocale =
+        _amyVoiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US';
+    SpeechBridge.speak(
+      text,
+      locale: effectiveLocale,
+      rate: overrideRate ?? _amyRate,
+      preferFemale: true,
+      voiceProfile: _amyVoiceProfile,
+      bundledAssetPath: bundledAssetPath,
+      onSpeakingChanged: (speaking) {
+        if (!mounted) return;
+        setState(() {
+          _amySpeaking = speaking;
+          if (!speaking) {
+            _speakingMessageIdx = null;
+            _speakingWordIdx = -1;
+          } else {
+            _speakingMessageIdx = messageIdx;
+          }
+        });
+      },
+      onWordIndex: (wordIdx) {
+        if (!mounted) return;
+        setState(() {
+          _speakingMessageIdx = messageIdx;
+          _speakingWordIdx = wordIdx;
+        });
+      },
+      onEngineUsed: (engine) {
+        if (!mounted) return;
+        setState(() => _amyVoiceEngineLabel = engine);
+      },
+    );
+  }
+
+  Future<void> _tapWordInAmyMessage(String rawWord) async {
+    final clean = rawWord.replaceAll(RegExp(r"[^a-zA-Z'-]"), '').trim();
+    if (clean.isEmpty) return;
+    _speakAsAmy(clean, overrideRate: 0.88);
+    setState(() {
+      _tappedWord = clean;
+      _tappedWordInfo = null;
+      _tappedWordLoading = true;
+    });
+    try {
+      final entry = await _openDictService.lookupWord(clean.toLowerCase());
+      if (!mounted || _tappedWord != clean) return;
+      if (entry != null && entry.meanings.isNotEmpty) {
+        final def = entry.meanings.first.definitions.isNotEmpty
+            ? entry.meanings.first.definitions.first
+            : '';
+        final phon = entry.phonetic.isNotEmpty ? '${entry.phonetic} • ' : '';
+        setState(() {
+          _tappedWordLoading = false;
+          _tappedWordInfo = '$phon${entry.meanings.first.partOfSpeech} : $def';
+        });
+      } else {
+        setState(() {
+          _tappedWordLoading = false;
+          _tappedWordInfo = 'Mot prononcé par Amy. Cherchez-le dans l’onglet Dictionnaire pour plus d’exemples.';
+        });
+      }
+    } catch (_) {
+      if (!mounted || _tappedWord != clean) return;
+      setState(() {
+        _tappedWordLoading = false;
+        _tappedWordInfo = 'Mot prononcé par Amy.';
+      });
+    }
+  }
+
   void _resetAmyScenario(int index, {bool speakNow = true}) {
     final sc = EnglishOpenSourceService.amyScenarios[
         index.clamp(0, EnglishOpenSourceService.amyScenarios.length - 1)];
+    SpeechBridge.stopSpeaking();
     setState(() {
       _amyScenarioIdx = index;
+      _amyHints = sc.suggestedRepliesEn;
+      _shadowingTarget = null;
+      _shadowingEval = null;
+      _tappedWord = null;
+      _tappedWordInfo = null;
+      _revealedTranslations
+        ..clear()
+        ..add(0);
       _amyMessages
         ..clear()
         ..add(
@@ -155,15 +254,15 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
             fromAmy: true,
             englishText: sc.openingEn,
             frenchNote: sc.openingFr,
+            bundledAssetPath: sc.openingAssetPath,
           ),
         );
     });
     if (speakNow && _amyAutoSpeak) {
-      SpeechBridge.speak(
+      _speakAsAmy(
         sc.openingEn,
-        locale: _variant,
-        rate: _amySlowMode ? 0.78 : 0.94,
-        preferFemale: true,
+        messageIdx: 0,
+        bundledAssetPath: sc.openingAssetPath,
       );
     }
   }
@@ -175,6 +274,20 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       SpeechBridge.stopDictation();
       _amyListening = false;
     }
+
+    // Si l'utilisateur est en mode Répéter (Shadowing), évalue d'abord sa prononciation mot par mot !
+    if (_shadowingTarget != null) {
+      final eval = EnglishOpenSourceService.evaluateShadowing(
+        targetSentence: _shadowingTarget!,
+        spokenText: text,
+      );
+      setState(() {
+        _shadowingEval = eval;
+        _amyInputCtrl.clear();
+      });
+      return;
+    }
+
     final sc = EnglishOpenSourceService.amyScenarios[_amyScenarioIdx];
     final userTurns = _amyMessages.where((m) => !m.fromAmy).length;
     setState(() {
@@ -186,29 +299,30 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       userInput: text,
       scenario: sc,
       turnIndex: userTurns,
-      variant: _variant,
+      variant: _amyVoiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US',
       cefrLevel: _cefr,
     );
     if (!mounted) return;
+    final newMsgIndex = _amyMessages.length;
     setState(() {
       _amyBusy = false;
+      if (reply.suggestedRepliesEn.isNotEmpty) {
+        _amyHints = reply.suggestedRepliesEn;
+      }
       _amyMessages.add(
         _AmyChatMessage(
           fromAmy: true,
           englishText: reply.amySpeechEn,
           frenchNote: reply.amyTranslationFr,
           correctionNote: reply.correctionNote,
+          correctedText: reply.correctedText,
           nativeUpgrade: reply.nativeUpgrade,
+          fluencyScore: reply.fluencyScore,
         ),
       );
     });
     if (_amyAutoSpeak) {
-      SpeechBridge.speak(
-        reply.amySpeechEn,
-        locale: _variant,
-        rate: _amySlowMode ? 0.78 : 0.94,
-        preferFemale: true,
-      );
+      _speakAsAmy(reply.amySpeechEn, messageIdx: newMsgIndex);
     }
   }
 
@@ -303,11 +417,11 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     if (audioUrl != null && audioUrl.isNotEmpty) {
       await audio.playFile(
         audioUrl,
-        onError: (_) => SpeechBridge.speak(entry.word, locale: _variant),
+        onError: (_) => _speakAsAmy(entry.word),
       );
       return;
     }
-    SpeechBridge.speak(entry.word, locale: _variant);
+    _speakAsAmy(entry.word);
   }
 
   @override
@@ -319,6 +433,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     _ltCheckCtrl.dispose();
     _vocabSearchCtrl.dispose();
     if (_amyListening) SpeechBridge.stopDictation();
+    SpeechBridge.stopSpeaking();
     super.dispose();
   }
 
@@ -386,7 +501,11 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                       DropdownMenuItem(value: 'en-GB', child: Text('British (en-GB)')),
                       DropdownMenuItem(value: 'en-US', child: Text('American (en-US)')),
                     ],
-                    onChanged: (v) => setState(() => _variant = v ?? 'en-GB'),
+                    onChanged: (v) => setState(() {
+                      _variant = v ?? 'en-GB';
+                      _amyVoiceProfile =
+                          _variant == 'en-GB' ? 'amy-soft-uk' : 'amy-fluent-us';
+                    }),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -508,12 +627,15 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
               onPressed: () {
                 setState(() => _activeTab = 1);
                 if (_amyAutoSpeak && _amyMessages.isNotEmpty) {
-                  SpeechBridge.speak(
-                    _amyMessages.last.englishText,
-                    locale: _variant,
-                    rate: _amySlowMode ? 0.78 : 0.94,
-                    preferFemale: true,
-                  );
+                  final lastIdx = _amyMessages.lastIndexWhere((m) => m.fromAmy);
+                  if (lastIdx >= 0) {
+                    final m = _amyMessages[lastIdx];
+                    _speakAsAmy(
+                      m.englishText,
+                      messageIdx: lastIdx,
+                      bundledAssetPath: m.bundledAssetPath,
+                    );
+                  }
                 }
               },
               child: const Text('Parler →'),
@@ -615,10 +737,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                 IconButton(
                   tooltip: 'Écouter la prononciation ($_variant)',
                   icon: const Icon(Icons.volume_up_rounded),
-                  onPressed: () => SpeechBridge.speak(
-                    '${w.word}. ${w.exampleEn}',
-                    locale: _variant,
-                  ),
+                  onPressed: () => _speakAsAmy('${w.word}. ${w.exampleEn}'),
                 ),
                 IconButton(
                   tooltip: w.mastered
@@ -718,7 +837,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                         tooltip: 'Écouter la phrase corrigée',
                         visualDensity: VisualDensity.compact,
                         icon: const Icon(Icons.volume_up_rounded, size: 18),
-                        onPressed: () => SpeechBridge.speak(s, locale: _variant),
+                        onPressed: () => _speakAsAmy(s),
                       ),
                     ],
                   ),
@@ -918,7 +1037,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                       label: Text(word),
                       onPressed: () {
                         final v = _vocabDrills[_vocabIdx];
-                        SpeechBridge.speak(word, locale: _variant);
+                        _speakAsAmy(word);
                         setState(() {
                           if (word == v.answer) {
                             _vocabXp += 25;
@@ -1143,10 +1262,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   IconButton(
                     tooltip: 'Écouter la version corrigée',
                     icon: const Icon(Icons.volume_up_rounded),
-                    onPressed: () => SpeechBridge.speak(
-                      _ltResult!.correctedText,
-                      locale: _variant,
-                    ),
+                    onPressed: () => _speakAsAmy(_ltResult!.correctedText),
                   ),
                 ],
               ),
@@ -1238,8 +1354,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.volume_up_rounded),
-                  onPressed: () =>
-                      SpeechBridge.speak('${w.word}. ${w.exampleEn}', locale: _variant),
+                  onPressed: () => _speakAsAmy('${w.word}. ${w.exampleEn}'),
                 ),
                 IconButton(
                   icon: Icon(
@@ -1369,7 +1484,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   onPressed: () {
                     final fullScript =
                         activeCourse.dialogue.map((l) => l.english).join(' ');
-                    SpeechBridge.speak(fullScript, locale: _variant);
+                    _speakAsAmy(fullScript);
                   },
                   icon: const Icon(Icons.volume_up_rounded, size: 18),
                   label: const Text('Tout écouter'),
@@ -1389,7 +1504,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                 trailing: IconButton(
                   tooltip: 'Écouter cette réplique',
                   icon: const Icon(Icons.play_circle_outline_rounded),
-                  onPressed: () => SpeechBridge.speak(line.english, locale: _variant),
+                  onPressed: () => _speakAsAmy(line.english),
                 ),
               ),
             ),
@@ -1550,10 +1665,8 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   subtitle: Text(v.french),
                   trailing: IconButton(
                     icon: const Icon(Icons.volume_up_rounded),
-                    onPressed: () => SpeechBridge.speak(
-                      '${v.base}, ${v.past}, ${v.participle}',
-                      locale: _variant,
-                    ),
+                    onPressed: () =>
+                        _speakAsAmy('${v.base}, ${v.past}, ${v.participle}'),
                   ),
                 ),
               )
@@ -1582,14 +1695,25 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     ];
   }
 
-  /// Onglet 1 : Conversation Orale & Écrite en direct avec Amy (IA Femme — Voix UK/US).
+  /// Onglet 1 : Conversation Orale & Lecture Fluide avec Amy (inspiré d'English AI).
   List<Widget> _buildAmyConversationTab(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
     final scenarios = EnglishOpenSourceService.amyScenarios;
     final active = scenarios[_amyScenarioIdx.clamp(0, scenarios.length - 1)];
 
+    const voiceProfiles = [
+      (id: 'amy-fluent-us', label: 'Amy Fluide (Ava · US)'),
+      (id: 'amy-soft-uk', label: 'Amy Douce (Libby · UK)'),
+      (id: 'amy-clear-uk', label: 'Amy Claire (Sonia · UK)'),
+    ];
+    const speeds = [
+      (rate: 0.78, label: '0.8× Lent'),
+      (rate: 0.96, label: '1.0× Fluide'),
+      (rate: 1.14, label: '1.15× Natif'),
+    ];
+
     return [
-      // Carte Profil Amy (Émeraude & Or 1px)
+      // Carte Studio Vocale Amy (Émeraude & Or 1px — façon English AI)
       Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1608,18 +1732,27 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: YitteColors.gold,
-                    border: Border.all(color: YitteColors.ivory, width: 1.2),
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'A',
-                      style: TextStyle(
-                        fontFamily: YitteFonts.display,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: YitteColors.inkDark,
-                      ),
+                    border: Border.all(
+                      color: _amySpeaking ? YitteColors.ivory : YitteColors.gold,
+                      width: _amySpeaking ? 2.2 : 1.2,
                     ),
+                  ),
+                  child: Center(
+                    child: _amySpeaking
+                        ? const Icon(
+                            Icons.graphic_eq_rounded,
+                            size: 22,
+                            color: YitteColors.inkDark,
+                          )
+                        : const Text(
+                            'A',
+                            style: TextStyle(
+                              fontFamily: YitteFonts.display,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                              color: YitteColors.inkDark,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1628,7 +1761,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Amy — Professeure IA d’Anglais',
+                        'Amy — Coach IA Vocale',
                         style: TextStyle(
                           fontFamily: YitteFonts.display,
                           color: YitteColors.ivory,
@@ -1637,9 +1770,11 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                         ),
                       ),
                       Text(
-                        'Voix féminine ${_variant == "en-GB" ? "britannique" : "américaine"} • Correction en direct',
+                        _amySpeaking
+                            ? 'Amy parle • $_amyVoiceEngineLabel'
+                            : '$_amyVoiceEngineLabel • Touchez un mot pour l’écouter',
                         style: TextStyle(
-                          color: YitteColors.ivory.withValues(alpha: 0.82),
+                          color: YitteColors.ivory.withValues(alpha: 0.84),
                           fontSize: 11.5,
                         ),
                       ),
@@ -1647,61 +1782,125 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Écouter Amy',
+                  tooltip: _amySpeaking ? 'Arrêter la lecture' : 'Écouter Amy',
                   onPressed: () {
-                    final lastAmy = _amyMessages.lastWhere(
-                      (m) => m.fromAmy,
-                      orElse: () => _AmyChatMessage(
-                        fromAmy: true,
-                        englishText: active.openingEn,
-                      ),
-                    );
-                    SpeechBridge.speak(
-                      lastAmy.englishText,
-                      locale: _variant,
-                      rate: _amySlowMode ? 0.78 : 0.94,
-                      preferFemale: true,
-                    );
+                    if (_amySpeaking) {
+                      SpeechBridge.stopSpeaking();
+                      return;
+                    }
+                    final lastIdx = _amyMessages.lastIndexWhere((m) => m.fromAmy);
+                    if (lastIdx >= 0) {
+                      final m = _amyMessages[lastIdx];
+                      _speakAsAmy(
+                        m.englishText,
+                        messageIdx: lastIdx,
+                        bundledAssetPath: m.bundledAssetPath,
+                      );
+                    } else {
+                      _speakAsAmy(
+                        active.openingEn,
+                        bundledAssetPath: active.openingAssetPath,
+                      );
+                    }
                   },
-                  icon: const Icon(
-                    Icons.volume_up_rounded,
+                  icon: Icon(
+                    _amySpeaking
+                        ? Icons.stop_circle_outlined
+                        : Icons.volume_up_rounded,
                     color: YitteColors.gold,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
+            // Sélecteur de Voix Féminine Neurale
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: voiceProfiles.map((vp) {
+                  final selected = _amyVoiceProfile == vp.id;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      selected: selected,
+                      showCheckmark: false,
+                      visualDensity: VisualDensity.compact,
+                      selectedColor: YitteColors.gold,
+                      backgroundColor: Colors.white.withValues(alpha: 0.08),
+                      side: BorderSide(
+                        color: selected
+                            ? YitteColors.gold
+                            : YitteColors.ivory.withValues(alpha: 0.28),
+                      ),
+                      label: Text(
+                        vp.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: selected
+                              ? YitteColors.inkDark
+                              : YitteColors.ivory,
+                        ),
+                      ),
+                      onSelected: (_) {
+                        setState(() {
+                          _amyVoiceProfile = vp.id;
+                          _variant = vp.id.endsWith('-uk') ? 'en-GB' : 'en-US';
+                        });
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Vitesse fluide (0.8× / 1.0× / 1.15×) + Voix auto
             Wrap(
-              spacing: 8,
+              spacing: 6,
               runSpacing: 6,
               children: [
+                ...speeds.map((sp) {
+                  final sel = (_amyRate - sp.rate).abs() < 0.05;
+                  return ChoiceChip(
+                    selected: sel,
+                    showCheckmark: false,
+                    visualDensity: VisualDensity.compact,
+                    selectedColor: YitteColors.ivory,
+                    backgroundColor: Colors.white.withValues(alpha: 0.08),
+                    side: BorderSide(
+                      color: YitteColors.ivory.withValues(alpha: 0.25),
+                    ),
+                    label: Text(
+                      sp.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: sel ? YitteColors.emerald : YitteColors.ivory,
+                      ),
+                    ),
+                    onSelected: (_) => setState(() => _amyRate = sp.rate),
+                  );
+                }),
                 FilterChip(
                   selected: _amyAutoSpeak,
                   showCheckmark: false,
+                  visualDensity: VisualDensity.compact,
+                  selectedColor: YitteColors.gold,
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  side: BorderSide(
+                    color: YitteColors.ivory.withValues(alpha: 0.25),
+                  ),
                   label: Text(
-                    _amyAutoSpeak ? 'Voix auto : ON' : 'Voix auto : OFF',
-                    style: const TextStyle(fontSize: 11.5),
+                    _amyAutoSpeak ? 'Auto : ON' : 'Auto : OFF',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: _amyAutoSpeak
+                          ? YitteColors.inkDark
+                          : YitteColors.ivory,
+                    ),
                   ),
                   onSelected: (v) => setState(() => _amyAutoSpeak = v),
-                ),
-                FilterChip(
-                  selected: _amySlowMode,
-                  showCheckmark: false,
-                  label: Text(
-                    _amySlowMode ? 'Vitesse : Lente (0.78x)' : 'Vitesse : Normale',
-                    style: const TextStyle(fontSize: 11.5),
-                  ),
-                  onSelected: (v) => setState(() => _amySlowMode = v),
-                ),
-                ActionChip(
-                  label: const Text(
-                    'Exemple de réponse',
-                    style: TextStyle(fontSize: 11.5),
-                  ),
-                  onPressed: () {
-                    _amyInputCtrl.text = active.sampleTargetEn;
-                    setState(() {});
-                  },
                 ),
               ],
             ),
@@ -1732,6 +1931,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                 selected: selected,
                 showCheckmark: false,
                 selectedColor: YitteColors.emerald,
+                visualDensity: VisualDensity.compact,
                 label: Text('${sc.titleFr} (${sc.levelRange})'),
                 labelStyle: TextStyle(
                   fontSize: 12,
@@ -1746,23 +1946,90 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
           }).toList(),
         ),
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 10),
 
-      // Fil de dialogue avec Amy
-      ..._amyMessages.map(
-        (m) => Padding(
+      // Mini-dictionnaire instantané lorsqu'un mot est touché dans le texte d'Amy (façon English AI)
+      if (_tappedWord != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: YitteSurfaceCard(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            color: tokens.goldSurface,
+            borderColor: tokens.borderAccent,
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Réécouter le mot',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => _speakAsAmy(_tappedWord!, overrideRate: 0.86),
+                  icon: const Icon(
+                    Icons.volume_up_rounded,
+                    size: 18,
+                    color: YitteColors.emerald,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _tappedWord!,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      Text(
+                        _tappedWordLoading
+                            ? 'Chargement de la phonétique & définition...'
+                            : (_tappedWordInfo ?? ''),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Fermer',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => setState(() => _tappedWord = null),
+                  icon: const Icon(Icons.close_rounded, size: 17),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+      // Fil de dialogue interactif façon English AI (lecture synchronisée mot-à-mot + traduction + répétition)
+      ..._amyMessages.asMap().entries.map((entry) {
+        final msgIdx = entry.key;
+        final m = entry.value;
+        final isThisSpeaking = _amySpeaking && _speakingMessageIdx == msgIdx;
+        final showFr = _revealedTranslations.contains(msgIdx);
+        final words = m.englishText
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((w) => w.isNotEmpty)
+            .toList();
+
+        return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: YitteSurfaceCard(
             padding: const EdgeInsets.all(13),
             color: m.fromAmy ? tokens.elevated : tokens.subtleFill,
-            borderColor: m.fromAmy ? tokens.borderAccent : tokens.borderSubtle,
+            borderColor: isThisSpeaking
+                ? YitteColors.emerald
+                : (m.fromAmy ? tokens.borderAccent : tokens.borderSubtle),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Text(
-                      m.fromAmy ? 'AMY (PROFESSEURE IA)' : 'VOUS',
+                      m.fromAmy ? 'AMY (COACH IA)' : 'VOUS',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
@@ -1772,37 +2039,166 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                             : Theme.of(context).colorScheme.primary,
                       ),
                     ),
+                    if (m.fluencyScore != null && m.fluencyScore! > 0) ...[
+                      const SizedBox(width: 8),
+                      YitteStatusPill(label: 'Fluidité ${m.fluencyScore}/100'),
+                    ],
                     const Spacer(),
-                    if (m.fromAmy)
-                      IconButton(
-                        tooltip: 'Écouter Amy',
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        onPressed: () => SpeechBridge.speak(
-                          m.englishText,
-                          locale: _variant,
-                          rate: _amySlowMode ? 0.78 : 0.94,
-                          preferFemale: true,
-                        ),
-                        icon: const Icon(Icons.volume_up_outlined, size: 18),
+                    if (isThisSpeaking)
+                      const YitteStatusPill(
+                        icon: Icons.graphic_eq_rounded,
+                        label: 'Lecture en cours',
                       ),
                   ],
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  m.englishText,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
+                const SizedBox(height: 8),
+
+                // Lecture synchronisée mot-à-mot (chaque mot cliquable pour écoute & définition)
+                if (m.fromAmy)
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: words.asMap().entries.map((wEntry) {
+                      final wIdx = wEntry.key;
+                      final wText = wEntry.value;
+                      final highlighted =
+                          isThisSpeaking && _speakingWordIdx == wIdx;
+                      return GestureDetector(
+                        onTap: () => _tapWordInAmyMessage(wText),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 3,
+                            vertical: 1,
+                          ),
+                          decoration: highlighted
+                              ? BoxDecoration(
+                                  color: YitteColors.emerald,
+                                  borderRadius: BorderRadius.circular(4),
+                                )
+                              : null,
+                          child: Text(
+                            wText,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.35,
+                                  color: highlighted
+                                      ? YitteColors.ivory
+                                      : Theme.of(context).colorScheme.onSurface,
+                                ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  )
+                else
+                  Text(
+                    m.englishText,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+
+                // Barre d'actions English AI sous chaque bulle d'Amy : Écouter • Lent • Traduire • Répéter
+                if (m.fromAmy) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 4,
+                          ),
+                          textStyle: const TextStyle(fontSize: 11.5),
+                        ),
+                        onPressed: () => _speakAsAmy(
+                          m.englishText,
+                          messageIdx: msgIdx,
+                          bundledAssetPath: m.bundledAssetPath,
+                        ),
+                        icon: const Icon(Icons.volume_up_outlined, size: 15),
+                        label: const Text('Écouter'),
                       ),
-                ),
-                if (m.frenchNote != null && m.frenchNote!.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 4,
+                          ),
+                          textStyle: const TextStyle(fontSize: 11.5),
+                        ),
+                        onPressed: () => _speakAsAmy(
+                          m.englishText,
+                          messageIdx: msgIdx,
+                          overrideRate: 0.78,
+                          bundledAssetPath: m.bundledAssetPath,
+                        ),
+                        icon: const Icon(Icons.slow_motion_video_rounded, size: 15),
+                        label: const Text('Lent'),
+                      ),
+                      if (m.frenchNote != null && m.frenchNote!.isNotEmpty)
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 4,
+                            ),
+                            textStyle: const TextStyle(fontSize: 11.5),
+                          ),
+                          onPressed: () => setState(() {
+                            if (showFr) {
+                              _revealedTranslations.remove(msgIdx);
+                            } else {
+                              _revealedTranslations.add(msgIdx);
+                            }
+                          }),
+                          icon: const Icon(Icons.translate_rounded, size: 15),
+                          label: Text(showFr ? 'Masquer FR' : 'Traduire'),
+                        ),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 4,
+                          ),
+                          textStyle: const TextStyle(fontSize: 11.5),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _shadowingTarget = m.englishText;
+                            _shadowingEval = null;
+                          });
+                          _speakAsAmy(
+                            m.englishText,
+                            messageIdx: msgIdx,
+                            overrideRate: 0.85,
+                            bundledAssetPath: m.bundledAssetPath,
+                          );
+                        },
+                        icon: const Icon(Icons.record_voice_over_outlined, size: 15),
+                        label: const Text('Répéter'),
+                      ),
+                    ],
+                  ),
+                ],
+
+                if (showFr && m.frenchNote != null && m.frenchNote!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
                   Text(
                     m.frenchNote!,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
+
                 if (m.correctionNote != null && m.correctionNote!.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Container(
@@ -1813,14 +2209,36 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: tokens.borderAccent),
                     ),
-                    child: Text(
-                      m.correctionNote!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurface,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          m.correctionNote!,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                        ),
+                        if (m.correctedText != null &&
+                            m.correctedText!.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                              ),
+                              onPressed: () => _speakAsAmy(m.correctedText!),
+                              icon: const Icon(Icons.volume_up_outlined, size: 16),
+                              label: const Text('Écouter la version corrigée'),
+                            ),
                           ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
+
                 if (m.nativeUpgrade != null && m.nativeUpgrade!.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Row(
@@ -1839,12 +2257,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                       IconButton(
                         tooltip: 'Écouter la version native',
                         visualDensity: VisualDensity.compact,
-                        onPressed: () => SpeechBridge.speak(
-                          m.nativeUpgrade!,
-                          locale: _variant,
-                          rate: _amySlowMode ? 0.78 : 0.94,
-                          preferFemale: true,
-                        ),
+                        onPressed: () => _speakAsAmy(m.nativeUpgrade!),
                         icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
                       ),
                     ],
@@ -1853,8 +2266,8 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
               ],
             ),
           ),
-        ),
-      ),
+        );
+      }),
 
       if (_amyBusy)
         const Padding(
@@ -1864,7 +2277,190 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
           ),
         ),
 
-      // Zone Micro + Saisie pour répondre à Amy
+      // Mode Shadowing / Répétition guidée mot-à-mot (façon English AI)
+      if (_shadowingTarget != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: YitteSurfaceCard(
+            borderColor: YitteColors.emerald,
+            padding: const EdgeInsets.all(13),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.record_voice_over_rounded,
+                      size: 18,
+                      color: YitteColors.emerald,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'MODE RÉPÉTITION (SHADOWING)',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              letterSpacing: 1.1,
+                              fontWeight: FontWeight.w700,
+                              color: YitteColors.emerald,
+                            ),
+                      ),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => setState(() {
+                        _shadowingTarget = null;
+                        _shadowingEval = null;
+                      }),
+                      child: const Text('Quitter'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Répétez à voix haute au micro :',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '« $_shadowingTarget »',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                if (_shadowingEval != null) ...[
+                  const SizedBox(height: 10),
+                  YitteStatusPill(
+                    label: 'Prononciation : ${_shadowingEval!.scorePercent}%',
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: 5,
+                    children: _shadowingEval!.wordResults.map((wr) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: wr.matched
+                              ? YitteColors.emeraldSoft
+                              : tokens.goldSurface,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: wr.matched
+                                ? YitteColors.emerald
+                                : tokens.goldAccent,
+                          ),
+                        ),
+                        child: Text(
+                          wr.word,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: wr.matched
+                                ? YitteColors.emerald
+                                : Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _shadowingEval!.feedbackFr,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+
+      // Idées de réponse guidées (façon English AI : "Aide-moi à répondre")
+      if (_amyHints.isNotEmpty && _shadowingTarget == null) ...[
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'IDÉES DE RÉPONSE (AIDE ORALE)',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+              onPressed: () => setState(() => _showAmyHints = !_showAmyHints),
+              child: Text(_showAmyHints ? 'Masquer' : 'Afficher'),
+            ),
+          ],
+        ),
+        if (_showAmyHints) ...[
+          const SizedBox(height: 4),
+          ..._amyHints.map(
+            (hint) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: tokens.elevated,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: tokens.borderSubtle),
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Écouter cette suggestion',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () => _speakAsAmy(hint),
+                      icon: const Icon(
+                        Icons.volume_up_outlined,
+                        size: 17,
+                        color: YitteColors.emerald,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          _amyInputCtrl.text = hint;
+                          setState(() {});
+                        },
+                        child: Text(
+                          hint,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.w500,
+                              ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      onPressed: () => _sendToAmy(hint),
+                      child: const Text('Utiliser'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
+      ],
+
+      // Zone Micro & Saisie orientée voix (façon English AI)
       YitteSurfaceCard(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1873,23 +2469,37 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
             TextField(
               controller: _amyInputCtrl,
               maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Parlez au micro ou répondez à Amy en anglais',
-                hintText: 'Ex : Hello Amy, I joined BOROOM YITTÉ in 2026 to master English.',
+              decoration: InputDecoration(
+                labelText: _shadowingTarget != null
+                    ? 'Parlez au micro pour évaluer votre répétition'
+                    : 'Parlez au micro ou répondez à Amy en anglais',
+                hintText:
+                    'Ex : Hello Amy, I joined BOROOM YITTÉ in 2026 to master English.',
               ),
             ),
             const SizedBox(height: 10),
             Row(
               children: [
-                OutlinedButton.icon(
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _amyListening
+                        ? YitteColors.danger
+                        : YitteColors.gold,
+                    foregroundColor: _amyListening
+                        ? Colors.white
+                        : YitteColors.inkDark,
+                  ),
                   onPressed: () {
                     if (_amyListening) {
                       SpeechBridge.stopDictation();
                       setState(() => _amyListening = false);
                       return;
                     }
+                    SpeechBridge.stopSpeaking();
                     final started = SpeechBridge.startDictation(
-                      locale: _variant,
+                      locale: _amyVoiceProfile.endsWith('-uk')
+                          ? 'en-GB'
+                          : 'en-US',
                       onTranscript: (t) {
                         if (!mounted) return;
                         setState(() => _amyInputCtrl.text = t);
@@ -1906,9 +2516,10 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     }
                   },
                   icon: Icon(
-                    _amyListening ? Icons.stop_circle_outlined : Icons.mic_none_rounded,
+                    _amyListening
+                        ? Icons.stop_circle_outlined
+                        : Icons.mic_rounded,
                     size: 18,
-                    color: _amyListening ? YitteColors.danger : null,
                   ),
                   label: Text(_amyListening ? 'Arrêter' : 'Parler'),
                 ),
@@ -1918,8 +2529,17 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     onPressed: _amyBusy
                         ? null
                         : () => _sendToAmy(_amyInputCtrl.text),
-                    icon: const Icon(Icons.send_rounded, size: 17),
-                    label: const Text('Répondre à Amy'),
+                    icon: Icon(
+                      _shadowingTarget != null
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.send_rounded,
+                      size: 17,
+                    ),
+                    label: Text(
+                      _shadowingTarget != null
+                          ? 'Vérifier prononciation'
+                          : 'Répondre à Amy',
+                    ),
                   ),
                 ),
               ],
@@ -1936,13 +2556,19 @@ class _AmyChatMessage {
   final String englishText;
   final String? frenchNote;
   final String? correctionNote;
+  final String? correctedText;
   final String? nativeUpgrade;
+  final int? fluencyScore;
+  final String? bundledAssetPath;
 
   const _AmyChatMessage({
     required this.fromAmy,
     required this.englishText,
     this.frenchNote,
     this.correctionNote,
+    this.correctedText,
     this.nativeUpgrade,
+    this.fluencyScore,
+    this.bundledAssetPath,
   });
 }
