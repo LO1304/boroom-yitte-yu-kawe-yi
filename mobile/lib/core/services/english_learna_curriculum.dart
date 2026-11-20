@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
 import 'english_open_source_service.dart';
 
 class LearnaTopic {
@@ -47,6 +51,7 @@ class LearnaLesson {
   final List<CourseQuizItem> quiz;
   final String amyPracticeOpeningEn;
   final String amyPracticeIntroFr;
+  final bool isGenerated;
 
   const LearnaLesson({
     required this.id,
@@ -61,7 +66,114 @@ class LearnaLesson {
     required this.quiz,
     required this.amyPracticeOpeningEn,
     required this.amyPracticeIntroFr,
+    this.isGenerated = false,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'level': level,
+        'unitNumber': unitNumber,
+        'titleFr': titleFr,
+        'subtitleFr': subtitleFr,
+        'durationMin': durationMin,
+        'coreRules': coreRules,
+        'traps': traps
+            .map(
+              (t) => {
+                'avoid': t.avoid,
+                'natural': t.natural,
+                'explanationFr': t.explanationFr,
+              },
+            )
+            .toList(),
+        'dialogue': dialogue
+            .map(
+              (d) => {
+                'speaker': d.speaker,
+                'english': d.english,
+                'french': d.french,
+              },
+            )
+            .toList(),
+        'quiz': quiz
+            .map(
+              (q) => {
+                'question': q.question,
+                'options': q.options,
+                'answer': q.answer,
+                'explanation': q.explanation,
+              },
+            )
+            .toList(),
+        'amyPracticeOpeningEn': amyPracticeOpeningEn,
+        'amyPracticeIntroFr': amyPracticeIntroFr,
+        'isGenerated': isGenerated,
+      };
+
+  factory LearnaLesson.fromJson(Map<String, dynamic> json) {
+    final rawTraps = (json['traps'] as List?) ?? const [];
+    final rawDialogue = (json['dialogue'] as List?) ?? const [];
+    final rawQuiz = (json['quiz'] as List?) ?? const [];
+    return LearnaLesson(
+      id: (json['id'] ?? 'gen_${DateTime.now().millisecondsSinceEpoch}').toString(),
+      level: (json['level'] ?? 'B1').toString(),
+      unitNumber: (json['unitNumber'] is num)
+          ? (json['unitNumber'] as num).toInt()
+          : 4,
+      titleFr: (json['titleFr'] ?? 'Leçon personnalisée').toString(),
+      subtitleFr: (json['subtitleFr'] ?? 'Perfectionnement continu').toString(),
+      durationMin: (json['durationMin'] is num)
+          ? (json['durationMin'] as num).toInt()
+          : 5,
+      coreRules: ((json['coreRules'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .where((s) => s.trim().isNotEmpty)
+          .toList(),
+      traps: rawTraps
+          .whereType<Map>()
+          .map(
+            (m) => CourseComparisonRow(
+              avoid: (m['avoid'] ?? '').toString(),
+              natural: (m['natural'] ?? '').toString(),
+              explanationFr: (m['explanationFr'] ?? '').toString(),
+            ),
+          )
+          .where((t) => t.natural.isNotEmpty)
+          .toList(),
+      dialogue: rawDialogue
+          .whereType<Map>()
+          .map(
+            (m) => CourseDialogueLine(
+              speaker: (m['speaker'] ?? 'Amy').toString(),
+              english: (m['english'] ?? '').toString(),
+              french: (m['french'] ?? '').toString(),
+            ),
+          )
+          .where((d) => d.english.isNotEmpty)
+          .toList(),
+      quiz: rawQuiz
+          .whereType<Map>()
+          .map(
+            (m) => CourseQuizItem(
+              question: (m['question'] ?? '').toString(),
+              options: ((m['options'] as List?) ?? const [])
+                  .map((e) => e.toString())
+                  .toList(),
+              answer: (m['answer'] ?? '').toString(),
+              explanation: (m['explanation'] ?? '').toString(),
+            ),
+          )
+          .where((q) => q.question.isNotEmpty && q.options.length >= 2)
+          .toList(),
+      amyPracticeOpeningEn: (json['amyPracticeOpeningEn'] ??
+              "Let's put this new lesson into practice right now! Tell me an example from your own life.")
+          .toString(),
+      amyPracticeIntroFr: (json['amyPracticeIntroFr'] ??
+              'Appliquez immédiatement cette étape en discutant avec Amy.')
+          .toString(),
+      isGenerated: json['isGenerated'] == true,
+    );
+  }
 }
 
 class EnglishLearnaCurriculum {
@@ -1261,4 +1373,307 @@ class EnglishLearnaCurriculum {
 
   static List<LearnaLesson> lessonsForLevel(String level) =>
       lessons.where((l) => l.level == level.toUpperCase()).toList();
+
+  static const List<String> infiniteThemes = [
+    'Auto',
+    'Conversation',
+    'Grammaire',
+    'Travail & Pro',
+    'Voyage',
+    'Idiomes',
+    'Prononciation',
+  ];
+
+  static const List<({
+    String topicFr,
+    String subtitleFr,
+    List<String> rules,
+    String avoid,
+    String natural,
+    String trapExplain,
+    String d1En,
+    String d1Fr,
+    String d2En,
+    String d2Fr,
+    String q,
+    List<String> opts,
+    String ans,
+    String ansExp,
+    String amyPrompt,
+  })> _endlessProceduralPool = [
+    (
+      topicFr: 'Modaux de nuance : Must, Have to, Should, Might',
+      subtitleFr: 'Conseiller, exprimer une obligation ou une probabilité',
+      rules: [
+        'MUST / HAVE TO = obligation ; DON’T HAVE TO = pas obligé (attention : MUSTN’T = interdit !).',
+        'SHOULD / OUGHT TO = conseil bienveillant : "You should practise aloud for 10 minutes."',
+        'MIGHT / COULD = possibilité mesurée : "It might rain later, so take an umbrella."',
+      ],
+      avoid: 'You mustn’t come if you are tired (pour dire « tu n’es pas obligé »). ❌',
+      natural: "You don't have to come if you're tired. ✅",
+      trapExplain: '« Mustn’t » signifie « il est interdit de », jamais « tu n’es pas obligé ».',
+      d1En: 'Should I prepare slides for tomorrow’s quick catch-up?',
+      d1Fr: 'Devrais-je préparer des diapositives pour le point rapide de demain ?',
+      d2En: "You don't have to make slides, though a short summary might help everyone stay aligned.",
+      d2Fr: 'Tu n’es pas obligé de faire des diapositives, mais un court résumé pourrait aider tout le monde.',
+      q: 'Comment dire « Tu n’es pas obligé de payer aujourd’hui » ?',
+      opts: [
+        "You mustn't pay today.",
+        "You don't have to pay today.",
+        'You should not paying today.',
+      ],
+      ans: "You don't have to pay today.",
+      ansExp: 'Absence d’obligation = « don’t have to ».',
+      amyPrompt:
+          "Let's practise modals! Give me one piece of advice using 'should', and one thing you don't have to do this weekend!",
+    ),
+    (
+      topicFr: 'Gérondif (-ing) vs Infinitif (to + verbe)',
+      subtitleFr: 'Enjoy doing, Decide to do, Look forward to + -ing',
+      rules: [
+        'Verbes suivis de -ING : enjoy, finish, avoid, suggest, keep, mind, look forward to ("I enjoy speaking English").',
+        'Verbes suivis de TO + base : decide, want, hope, plan, promise, manage ("I decided to study daily").',
+        'Piège célèbre : après « look forward to » et « be used to », « to » est une préposition → toujours -ING !',
+      ],
+      avoid: 'I look forward to hear from you. ❌',
+      natural: 'I look forward to hearing from you. ✅',
+      trapExplain: '« Look forward to » est toujours suivi d’un nom ou d’un verbe en -ING.',
+      d1En: 'Are you looking forward to presenting your project next week?',
+      d1Fr: 'As-tu hâte de présenter ton projet la semaine prochaine ?',
+      d2En: "Yes! I finished preparing my notes and I'm trying to avoid speaking too fast.",
+      d2Fr: 'Oui ! J’ai fini de préparer mes notes et j’essaie d’éviter de parler trop vite.',
+      q: 'Complétez : "I really enjoy _____ English podcasts while walking."',
+      opts: ['to listen', 'listening to', 'listen'],
+      ans: 'listening to',
+      ansExp: '« Enjoy » est toujours suivi de la forme en -ING (+ « to » avec listen).',
+      amyPrompt:
+          "Tell me one thing you really enjoy doing every week, and one thing you're looking forward to doing soon!",
+    ),
+    (
+      topicFr: 'Questions naturelles & Question Tags',
+      subtitleFr: '« It’s great, isn’t it? », « You work here, don’t you? »',
+      rules: [
+        'Phrase affirmative → tag négatif : "You live in Dakar, don’t you?" / "She’s brilliant, isn’t she?".',
+        'Phrase négative → tag affirmatif : "You haven’t seen this yet, have you?".',
+        'Les question tags rendent votre anglais immédiatement plus chaleureux et conversationnel.',
+      ],
+      avoid: 'This coffee is very good, no? ❌',
+      natural: "This coffee is really good, isn't it? ✅",
+      trapExplain: 'En anglais naturel, on ne termine pas par « , no? » : on reprend l’auxiliaire.',
+      d1En: "It's a lovely morning today, isn't it?",
+      d1Fr: 'C’est une belle matinée aujourd’hui, n’est-ce pas ?',
+      d2En: "It really is! You've been practising every day this week, haven't you?",
+      d2Fr: 'Vraiment ! Tu as pratiqué chaque jour cette semaine, pas vrai ?',
+      q: 'Complétez : "She speaks English very clearly, _____?"',
+      opts: ["isn't she", "doesn't she", 'no'],
+      ans: "doesn't she",
+      ansExp: '« Speaks » au présent simple → auxiliaire « doesn’t she? ».',
+      amyPrompt:
+          "Let's make our chat super natural! Say something about your week or weather using a question tag like 'isn't it?' or 'don't you?'",
+    ),
+    (
+      topicFr: 'Relier ses idées comme un natif (Discourse Markers)',
+      subtitleFr: 'By the way, Actually, Basically, To be honest, In fact',
+      rules: [
+        '« To be honest / Honestly » : introduire une opinion sincère sans brusquer.',
+        '« By the way » : changer de sujet en douceur dans une discussion.',
+        '« Actually / In fact » : préciser ou nuancer gentiment une information.',
+      ],
+      avoid: 'I will tell you the truth, I prefer reading. ❌',
+      natural: 'To be honest, I actually prefer reading over watching videos. ✅',
+      trapExplain: 'Ces petits marqueurs donnent instantanément du naturel et du rythme à l’oral.',
+      d1En: 'By the way, did you get a chance to try the new learning routine?',
+      d1Fr: 'Au fait, as-tu eu l’occasion d’essayer la nouvelle routine d’apprentissage ?',
+      d2En: 'To be honest, I was skeptical at first — in fact, it ended up saving me an hour a day!',
+      d2Fr: 'Pour être honnête, j’étais sceptique au début — en fait, ça a fini par me faire gagner une heure par jour !',
+      q: 'Quel marqueur sert à changer gentiment de sujet (« Au fait... ») ?',
+      opts: ['By the way', 'However', 'Therefore'],
+      ans: 'By the way',
+      ansExp: '« By the way » = au fait / à propos.',
+      amyPrompt:
+          "Tell me something honest about learning English using 'To be honest' or 'Actually', then switch topics with 'By the way'!",
+    ),
+    (
+      topicFr: 'Comparer & nuancer : Comparatifs, Superlatifs & As...As',
+      subtitleFr: 'Much faster, far more practical, not nearly as hard as',
+      rules: [
+        'Adjectif court (1 syllabe) : -er / the -est (faster, clearer, the best). Adjectif long : more / the most (more efficient).',
+        'Renforcer un comparatif : « much / far / a lot » devant le comparatif ("much easier", jamais "more easier").',
+        'Égalité / contraste doux : "Speaking isn’t as intimidating as I thought."',
+      ],
+      avoid: 'This method is more better and more easy. ❌',
+      natural: 'This method is much better and far easier. ✅',
+      trapExplain: 'On utilise « much / far » (jamais « more ») devant un comparatif irrégulier ou en -er.',
+      d1En: 'Do you find listening easier than speaking?',
+      d1Fr: 'Trouves-tu l’écoute plus facile que l’expression orale ?',
+      d2En: 'Listening is much easier, though speaking is becoming far more natural every week.',
+      d2Fr: 'L’écoute est beaucoup plus facile, mais parler devient bien plus naturel chaque semaine.',
+      q: 'Choisissez la phrase 100 % naturelle :',
+      opts: [
+        'This approach is more clearer.',
+        'This approach is much clearer.',
+        'This approach is very clearer.',
+      ],
+      ans: 'This approach is much clearer.',
+      ansExp: 'Pour intensifier un comparatif, utilisez « much / far / a lot ».',
+      amyPrompt:
+          "Compare two skills, tools, or habits in your life using 'much better', 'far more useful', or 'as ... as'!",
+    ),
+    (
+      topicFr: 'Voix passive & style clair en contexte pro',
+      subtitleFr: 'Is being updated, Was delivered, Needs to be verified',
+      rules: [
+        'Voix passive = BE (au bon temps) + participe passé (V3) : "The report was sent", "The system is being upgraded".',
+        'Très utile quand l’action compte plus que l’auteur : "All measurements were verified before publication."',
+        'Structure pratique : "needs to be + V3" ("This bug needs to be fixed today").',
+      ],
+      avoid: 'The document was send yesterday. ❌',
+      natural: 'The document was sent yesterday. ✅',
+      trapExplain: 'La voix passive utilise toujours la 3e colonne (participe passé : send → sent).',
+      d1En: 'Has the new schedule been shared with everyone yet?',
+      d1Fr: 'Le nouveau planning a-t-il déjà été partagé avec tout le monde ?',
+      d2En: 'Yes, it was sent this morning, and a reminder will be posted tonight.',
+      d2Fr: 'Oui, il a été envoyé ce matin, et un rappel sera publié ce soir.',
+      q: 'Complétez : "The new prototype _____ tested thoroughly last week."',
+      opts: ['was', 'is been', 'were'],
+      ans: 'was',
+      ansExp: 'Sujet singulier au passé (« last week ») → « was tested ».',
+      amyPrompt:
+          "Describe a project or task you worked on recently using at least one passive sentence like 'was built', 'was solved', or 'needs to be improved'!",
+    ),
+  ];
+
+  /// Génère une nouvelle leçon infinie (Étape N) adaptée au niveau CEFR & thème via IA ouverte (avec repli procédural illimité hors-ligne).
+  static Future<LearnaLesson> generateInfiniteLesson({
+    required String level,
+    required int stepNumber,
+    String theme = 'Auto',
+    List<String> existingTitles = const [],
+  }) async {
+    final normLevel = level.toUpperCase();
+    final lessonId = 'inf_${normLevel.toLowerCase()}_$stepNumber';
+
+    // 1. Génération IA ouverte en direct (CORS *, GitHub Pages + Local)
+    try {
+      final levelGuide = EnglishOpenSourceService.cefrStyleGuide(normLevel);
+      final avoidTitles = existingTitles.take(12).join(' | ');
+      final themePrompt = theme == 'Auto'
+          ? 'Choose a fresh, high-value everyday or professional English skill for level $normLevel that is NOT among these existing lessons: $avoidTitles.'
+          : 'Focus specifically on theme "$theme" for level $normLevel, distinct from these existing lessons: $avoidTitles.';
+
+      final sys =
+          'You are a world-class Cambridge/Learna AI English curriculum designer creating Step #$stepNumber for a francophone learner at CEFR $normLevel. '
+          '$levelGuide $themePrompt '
+          'Return ONLY valid compact JSON (no markdown fences) with exact keys:\n'
+          '{"titleFr":"Clear engaging French lesson title",'
+          '"subtitleFr":"Short French subtitle (5-9 words)",'
+          '"durationMin":5,'
+          '"coreRules":["French explanation with concrete English examples in quotes (rule 1)","Rule 2","Rule 3"],'
+          '"traps":[{"avoid":"Common francophone mistake in English ❌","natural":"Natural correct English ✅","explanationFr":"Short French explanation"},{"avoid":"Mistake 2 ❌","natural":"Natural 2 ✅","explanationFr":"Short French explanation"}],'
+          '"dialogue":[{"speaker":"Amy","english":"Natural line 1","french":"Traduction FR 1"},{"speaker":"You","english":"Natural line 2","french":"Traduction FR 2"},{"speaker":"Amy","english":"Natural line 3","french":"Traduction FR 3"},{"speaker":"You","english":"Natural line 4","french":"Traduction FR 4"}],'
+          '"quiz":[{"question":"French quiz question with English blank","options":["opt1","opt2","opt3"],"answer":"exact matching option","explanation":"Short French explanation"},{"question":"Quiz 2","options":["opt1","opt2","opt3"],"answer":"exact matching option","explanation":"Short French explanation"}],'
+          '"amyPracticeOpeningEn":"1-2 natural in-character English sentences where Amy invites the learner to practise this exact lesson right now with a question",'
+          '"amyPracticeIntroFr":"1-line French guidance for practising this lesson with Amy"}';
+
+      final res = await http
+          .post(
+            Uri.parse('https://text.pollinations.ai/openai'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'model': 'openai',
+              'temperature': 0.72,
+              'messages': [
+                {'role': 'system', 'content': sys},
+                {
+                  'role': 'user',
+                  'content':
+                      'Generate unique Step #$stepNumber lesson for CEFR $normLevel (theme: $theme).',
+                },
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 12));
+
+      if (res.statusCode == 200) {
+        final outer = jsonDecode(res.body);
+        String? content;
+        if (outer is Map<String, dynamic> &&
+            outer['choices'] is List &&
+            (outer['choices'] as List).isNotEmpty) {
+          final firstChoice = (outer['choices'] as List).first;
+          if (firstChoice is Map && firstChoice['message'] is Map) {
+            content =
+                (firstChoice['message'] as Map)['content']?.toString().trim();
+          }
+        }
+        if (content != null && content.isNotEmpty) {
+          var rawJson = content;
+          final a = rawJson.indexOf('{');
+          final b = rawJson.lastIndexOf('}');
+          if (a >= 0 && b > a) rawJson = rawJson.substring(a, b + 1);
+          final parsed = jsonDecode(rawJson);
+          if (parsed is Map<String, dynamic>) {
+            parsed['id'] = lessonId;
+            parsed['level'] = normLevel;
+            parsed['unitNumber'] = stepNumber;
+            parsed['isGenerated'] = true;
+            final built = LearnaLesson.fromJson(parsed);
+            if (built.coreRules.isNotEmpty && built.dialogue.isNotEmpty) {
+              return built;
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Fallback gracefully to rich procedural endless bank below
+    }
+
+    // 2. Repli procédural infini hors-ligne (toujours fluide et concret)
+    final template = _endlessProceduralPool[
+        (stepNumber - 1) % _endlessProceduralPool.length];
+    final cycle = ((stepNumber - 1) ~/ _endlessProceduralPool.length) + 1;
+    final themeSuffix = theme == 'Auto' ? '' : ' • $theme';
+    final cycleSuffix = cycle > 1 ? ' (Approfondissement #$cycle)' : '';
+
+    return LearnaLesson(
+      id: lessonId,
+      level: normLevel,
+      unitNumber: stepNumber,
+      titleFr: '${template.topicFr}$cycleSuffix',
+      subtitleFr: '${template.subtitleFr}$themeSuffix',
+      durationMin: 6,
+      coreRules: template.rules,
+      traps: [
+        CourseComparisonRow(
+          avoid: template.avoid,
+          natural: template.natural,
+          explanationFr: template.trapExplain,
+        ),
+      ],
+      dialogue: [
+        CourseDialogueLine(
+          speaker: 'Amy',
+          english: template.d1En,
+          french: template.d1Fr,
+        ),
+        CourseDialogueLine(
+          speaker: 'You',
+          english: template.d2En,
+          french: template.d2Fr,
+        ),
+      ],
+      quiz: [
+        CourseQuizItem(
+          question: template.q,
+          options: template.opts,
+          answer: template.ans,
+          explanation: template.ansExp,
+        ),
+      ],
+      amyPracticeOpeningEn: template.amyPrompt,
+      amyPracticeIntroFr:
+          'Mise en pratique Étape $stepNumber ($normLevel) : appliquez ce point directement avec Amy.',
+      isGenerated: true,
+    );
+  }
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +22,12 @@ class EnglishClubScreen extends ConsumerStatefulWidget {
 class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   static const _completedLessonsPrefKey = 'yitte_learna_completed_lessons_v2';
   static const _cefrPrefKey = 'yitte_learna_cefr_v2';
+  static const _generatedLessonsPrefKey = 'yitte_learna_generated_lessons_v1';
+  static const _dailyGoalPrefKey = 'yitte_learna_daily_goal_v1';
+  static const _todayDonePrefKey = 'yitte_learna_today_done_v1';
+  static const _lastStudyDatePrefKey = 'yitte_learna_last_date_v1';
+  static const _streakPrefKey = 'yitte_learna_streak_v1';
+  static const _xpPrefKey = 'yitte_learna_xp_v1';
 
   // 0 = Discuter (Amy), 1 = Cours (A1–C2), 2 = Vocabulaire
   int _activeTab = 0;
@@ -49,10 +57,17 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   String? _tappedWordDef;
   bool _tappedWordLoading = false;
 
-  // Cours interactifs (18 leçons A1 → C2)
+  // Parcours infini & objectifs personnels (A1 → C2, étapes illimitées)
   LearnaLesson? _openLesson;
   Set<String> _completedLessonIds = {};
+  List<LearnaLesson> _generatedLessons = [];
   final Map<String, String> _lessonQuizFeedback = {};
+  int _dailyGoal = 3;
+  int _todayDone = 0;
+  int _streakDays = 1;
+  int _totalXp = 0;
+  String _selectedTheme = 'Auto';
+  bool _generatingLesson = false;
 
   // Vocabulaire & recherche de mots
   final _dictCtrl = TextEditingController();
@@ -86,10 +101,48 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     super.dispose();
   }
 
+  String _todayIso() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  List<LearnaLesson> _allLessonsForLevel(String level) {
+    final norm = level.toUpperCase();
+    final base = EnglishLearnaCurriculum.lessonsForLevel(norm);
+    final extras = _generatedLessons
+        .where((l) => l.level.toUpperCase() == norm)
+        .toList();
+    return [...base, ...extras];
+  }
+
   Future<void> _loadProgress() async {
     final prefs = await SharedPreferences.getInstance();
     final savedLessons = prefs.getStringList(_completedLessonsPrefKey);
     final savedCefr = prefs.getString(_cefrPrefKey);
+    final savedGen = prefs.getString(_generatedLessonsPrefKey);
+    final savedGoal = prefs.getInt(_dailyGoalPrefKey);
+    final savedDate = prefs.getString(_lastStudyDatePrefKey);
+    final savedToday = prefs.getInt(_todayDonePrefKey) ?? 0;
+    final savedStreak = prefs.getInt(_streakPrefKey) ?? 1;
+    final savedXp = prefs.getInt(_xpPrefKey) ?? 0;
+
+    final parsedGen = <LearnaLesson>[];
+    if (savedGen != null && savedGen.isNotEmpty) {
+      try {
+        final raw = jsonDecode(savedGen);
+        if (raw is List) {
+          for (final item in raw.whereType<Map>()) {
+            parsedGen.add(
+              LearnaLesson.fromJson(Map<String, dynamic>.from(item)),
+            );
+          }
+        }
+      } catch (_) {}
+    }
+
+    final today = _todayIso();
+    final isSameDay = savedDate == today;
+
     if (!mounted) return;
     setState(() {
       if (savedLessons != null) _completedLessonIds = savedLessons.toSet();
@@ -97,7 +150,31 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
           EnglishOpenSourceService.cefrLevelsOrdered.contains(savedCefr)) {
         _cefr = savedCefr;
       }
+      _generatedLessons = parsedGen;
+      if (savedGoal != null && savedGoal >= 1 && savedGoal <= 10) {
+        _dailyGoal = savedGoal;
+      }
+      _todayDone = isSameDay ? savedToday : 0;
+      _streakDays = savedStreak < 1 ? 1 : savedStreak;
+      _totalXp = savedXp;
     });
+  }
+
+  Future<void> _persistInfiniteState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _completedLessonsPrefKey,
+      _completedLessonIds.toList(),
+    );
+    await prefs.setString(
+      _generatedLessonsPrefKey,
+      jsonEncode(_generatedLessons.map((l) => l.toJson()).toList()),
+    );
+    await prefs.setInt(_dailyGoalPrefKey, _dailyGoal);
+    await prefs.setInt(_todayDonePrefKey, _todayDone);
+    await prefs.setString(_lastStudyDatePrefKey, _todayIso());
+    await prefs.setInt(_streakPrefKey, _streakDays);
+    await prefs.setInt(_xpPrefKey, _totalXp);
   }
 
   Future<void> _saveCefr(String level) async {
@@ -105,16 +182,103 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     await prefs.setString(_cefrPrefKey, level);
   }
 
-  Future<void> _toggleLessonCompleted(String lessonId) async {
-    final next = Set<String>.from(_completedLessonIds);
-    if (next.contains(lessonId)) {
-      next.remove(lessonId);
-    } else {
-      next.add(lessonId);
-    }
-    setState(() => _completedLessonIds = next);
+  Future<void> _setDailyGoal(int goal) async {
+    setState(() => _dailyGoal = goal);
+    await _persistInfiniteState();
+  }
+
+  Future<void> _recordStepCompletion(String lessonId) async {
+    final alreadyDone = _completedLessonIds.contains(lessonId);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_completedLessonsPrefKey, next.toList());
+    final lastDate = prefs.getString(_lastStudyDatePrefKey);
+    final today = _todayIso();
+    final nextCompleted = Set<String>.from(_completedLessonIds)..add(lessonId);
+    final wasBelowGoal = _todayDone < _dailyGoal;
+
+    setState(() {
+      _completedLessonIds = nextCompleted;
+      if (!alreadyDone) {
+        _todayDone++;
+        _totalXp += 50;
+        if (lastDate != null && lastDate != today) {
+          _streakDays++;
+        }
+      }
+    });
+    await _persistInfiniteState();
+
+    if (!alreadyDone && wasBelowGoal && _todayDone >= _dailyGoal && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Objectif du jour atteint ($_todayDone/$_dailyGoal étapes) • +50 XP ! Continuez autant que vous voulez.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleLessonCompleted(String lessonId) async {
+    if (!_completedLessonIds.contains(lessonId)) {
+      await _recordStepCompletion(lessonId);
+      return;
+    }
+    final next = Set<String>.from(_completedLessonIds)..remove(lessonId);
+    setState(() => _completedLessonIds = next);
+    await _persistInfiniteState();
+  }
+
+  Future<LearnaLesson?> _generateNextInfiniteLesson({
+    bool openImmediately = true,
+  }) async {
+    if (_generatingLesson) return null;
+    final currentList = _allLessonsForLevel(_cefr);
+    final nextStepNumber = currentList.length + 1;
+    final existingTitles = currentList.map((l) => l.titleFr).toList();
+
+    setState(() => _generatingLesson = true);
+    final fresh = await EnglishLearnaCurriculum.generateInfiniteLesson(
+      level: _cefr,
+      stepNumber: nextStepNumber,
+      theme: _selectedTheme,
+      existingTitles: existingTitles,
+    );
+    if (!mounted) return null;
+    setState(() {
+      _generatingLesson = false;
+      _generatedLessons = [..._generatedLessons, fresh];
+      if (openImmediately) {
+        _openLesson = fresh;
+      }
+    });
+    await _persistInfiniteState();
+    return fresh;
+  }
+
+  Future<void> _continueEndlessPath() async {
+    final list = _allLessonsForLevel(_cefr);
+    final nextUnfinished = list
+        .where((l) => !_completedLessonIds.contains(l.id))
+        .firstOrNull;
+    if (nextUnfinished != null) {
+      setState(() => _openLesson = nextUnfinished);
+      return;
+    }
+    // Toutes les étapes actuelles sont validées → génère automatiquement l'étape suivante infinie !
+    await _generateNextInfiniteLesson(openImmediately: true);
+  }
+
+  Future<void> _completeAndAdvanceToNextStep(LearnaLesson current) async {
+    await _recordStepCompletion(current.id);
+    if (!mounted) return;
+    final list = _allLessonsForLevel(current.level);
+    final idx = list.indexWhere((l) => l.id == current.id);
+    if (idx >= 0 && idx + 1 < list.length) {
+      setState(() => _openLesson = list[idx + 1]);
+      return;
+    }
+    // Dernière étape de la liste → crée immédiatement une nouvelle étape infinie sans jamais s'arrêter !
+    await _generateNextInfiniteLesson(openImmediately: true);
   }
 
   void _speakFluid(
@@ -300,6 +464,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       );
       if (reply.fluencyScore > 0) {
         _turnScores.add(reply.fluencyScore);
+        _totalXp += 15;
         if (reply.fluencyScore >= 80) _solidTurnsAtLevel++;
       }
       if (reply.suggestedRepliesEn.isNotEmpty) {
@@ -1229,7 +1394,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ONGLET 1 : COURS STRUCTURÉS POUR SE PERFECTIONNER (18 LEÇONS A1 → C2)
+  // ONGLET 1 : PARCOURS INFINI & OBJECTIFS (ÉTAPES ILLIMITÉES A1 → C2)
   // ═══════════════════════════════════════════════════════════════════════
   Widget _buildCoursesTab(BuildContext context) {
     if (_openLesson != null) {
@@ -1237,17 +1402,194 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     }
 
     final tokens = AppTheme.tokensOf(context);
-    final levelLessons = EnglishLearnaCurriculum.lessonsForLevel(_cefr);
+    final levelLessons = _allLessonsForLevel(_cefr);
+    final levelDone = levelLessons
+        .where((l) => _completedLessonIds.contains(l.id))
+        .length;
     final totalDone = _completedLessonIds.length;
-    final totalAll = EnglishLearnaCurriculum.lessons.length;
+    final nextStepNumber = levelDone + 1;
+    final dailyRatio =
+        _dailyGoal > 0 ? (_todayDone / _dailyGoal).clamp(0.0, 1.0) : 1.0;
+    final goalReached = _todayDone >= _dailyGoal;
+    final nextCefr = EnglishOpenSourceService.nextCefrLevel(_cefr);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
       children: [
-        // Sélecteur de niveau CEFR (A1 → C2) + progression globale
-        YitteSurfaceCard(
+        // Carte Objectifs & Parcours Infini (Émeraude & Or 1px)
+        Container(
           padding: const EdgeInsets.all(14),
-          borderColor: tokens.borderAccent,
+          decoration: BoxDecoration(
+            color: YitteColors.emerald,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: YitteColors.gold, width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'PARCOURS INFINI • TES OBJECTIFS',
+                          style: TextStyle(
+                            color: YitteColors.gold,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Étape $nextStepNumber • Niveau $_cefr',
+                          style: const TextStyle(
+                            fontFamily: YitteFonts.display,
+                            color: YitteColors.ivory,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: YitteColors.gold.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    child: Text(
+                      '$_totalXp XP • ${_streakDays}j',
+                      style: const TextStyle(
+                        color: YitteColors.gold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      goalReached
+                          ? 'Objectif du jour atteint ($_todayDone/$_dailyGoal) ✓'
+                          : 'Objectif du jour : $_todayDone / $_dailyGoal étape(s)',
+                      style: TextStyle(
+                        color: goalReached
+                            ? YitteColors.gold
+                            : YitteColors.ivory.withValues(alpha: 0.88),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  // Choisir son rythme quotidien (2/j, 3/j, 5/j)
+                  for (final g in const [2, 3, 5])
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () => _setDailyGoal(g),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _dailyGoal == g
+                                ? YitteColors.gold
+                                : Colors.white.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '$g/j',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: _dailyGoal == g
+                                  ? YitteColors.inkDark
+                                  : YitteColors.ivory,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: dailyRatio,
+                  minHeight: 7,
+                  backgroundColor: Colors.white.withValues(alpha: 0.16),
+                  valueColor:
+                      const AlwaysStoppedAnimation<Color>(YitteColors.gold),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: YitteColors.gold,
+                    foregroundColor: YitteColors.inkDark,
+                  ),
+                  onPressed: _generatingLesson ? null : _continueEndlessPath,
+                  icon: Icon(
+                    _generatingLesson
+                        ? Icons.hourglass_top_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 19,
+                  ),
+                  label: Text(
+                    _generatingLesson
+                        ? 'Préparation de l’étape $nextStepNumber…'
+                        : 'Continuer : Étape $nextStepNumber →',
+                  ),
+                ),
+              ),
+              if (levelDone >= 3 && nextCefr != null) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: YitteColors.ivory,
+                      side: BorderSide(
+                        color: YitteColors.gold.withValues(alpha: 0.7),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () {
+                      setState(() => _cefr = nextCefr);
+                      _saveCefr(nextCefr);
+                    },
+                    icon: const Icon(Icons.trending_up_rounded, size: 16),
+                    label: Text(
+                      'Palier $_cefr validé ($levelDone étapes) • Passer en $nextCefr →',
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Sélecteur de niveau CEFR (A1 → C2)
+        YitteSurfaceCard(
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1256,18 +1598,13 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   Expanded(
                     child: Text(
                       'Parcours de perfectionnement',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
-                  YitteStatusPill(label: '$totalDone / $totalAll'),
+                  YitteStatusPill(label: '$totalDone étape(s) validée(s)'),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Choisissez votre niveau et suivez chaque leçon, puis pratiquez-la directement à l’oral avec Amy.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -1303,7 +1640,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         const SizedBox(height: 14),
 
         Text(
-          'LEÇONS NIVEAU $_cefr (${levelLessons.length} UNITÉS)',
+          'ÉTAPES NIVEAU $_cefr (SANS FIN)',
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 letterSpacing: 1.2,
                 fontWeight: FontWeight.w700,
@@ -1311,13 +1648,21 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         ),
         const SizedBox(height: 8),
 
-        ...levelLessons.map((lesson) {
+        ...levelLessons.asMap().entries.map((entry) {
+          final idx = entry.key;
+          final lesson = entry.value;
           final done = _completedLessonIds.contains(lesson.id);
+          final isNextActive = !done &&
+              levelLessons
+                  .take(idx)
+                  .every((prev) => _completedLessonIds.contains(prev.id));
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: YitteSurfaceCard(
               padding: const EdgeInsets.all(14),
-              borderColor: done ? YitteColors.emerald : tokens.borderSubtle,
+              borderColor: isNextActive
+                  ? tokens.borderAccent
+                  : (done ? YitteColors.emerald : tokens.borderSubtle),
               onTap: () => setState(() => _openLesson = lesson),
               child: Row(
                 children: [
@@ -1326,9 +1671,15 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     height: 40,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: done ? YitteColors.emerald : tokens.subtleFill,
+                      color: done
+                          ? YitteColors.emerald
+                          : (isNextActive
+                              ? YitteColors.gold
+                              : tokens.subtleFill),
                       border: Border.all(
-                        color: done ? YitteColors.gold : tokens.borderSubtle,
+                        color: done || isNextActive
+                            ? YitteColors.gold
+                            : tokens.borderSubtle,
                       ),
                     ),
                     child: Center(
@@ -1339,10 +1690,12 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                               color: YitteColors.ivory,
                             )
                           : Text(
-                              '${lesson.unitNumber}',
+                              '${idx + 1}',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
-                                color: YitteColors.emerald,
+                                color: isNextActive
+                                    ? YitteColors.inkDark
+                                    : YitteColors.emerald,
                               ),
                             ),
                     ),
@@ -1352,13 +1705,21 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          lesson.titleFr,
-                          style: Theme.of(context).textTheme.titleSmall,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                lesson.titleFr,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            if (isNextActive)
+                              const YitteStatusPill(label: 'Suivante'),
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${lesson.subtitleFr} • ${lesson.durationMin} min',
+                          'Étape ${idx + 1} • ${lesson.subtitleFr} • ${lesson.durationMin} min',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
@@ -1370,6 +1731,77 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
             ),
           );
         }),
+
+        // Générateur d'étapes infinies par thème (ne s'arrête jamais !)
+        YitteSurfaceCard(
+          padding: const EdgeInsets.all(14),
+          borderColor: tokens.borderAccent,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'CONTINUER SANS LIMITE (LEÇONS INFINIES)',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.goldAccent,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Choisissez un thème ou laissez en Auto : une nouvelle étape complète se crée à la volée pour votre niveau $_cefr.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: EnglishLearnaCurriculum.infiniteThemes.map((th) {
+                    final sel = _selectedTheme == th;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        selected: sel,
+                        showCheckmark: false,
+                        visualDensity: VisualDensity.compact,
+                        selectedColor: YitteColors.emerald,
+                        label: Text(th),
+                        labelStyle: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: sel
+                              ? YitteColors.ivory
+                              : Theme.of(context).colorScheme.onSurface,
+                        ),
+                        onSelected: (_) => setState(() => _selectedTheme = th),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _generatingLesson
+                      ? null
+                      : () => _generateNextInfiniteLesson(openImmediately: true),
+                  icon: Icon(
+                    _generatingLesson
+                        ? Icons.hourglass_top_rounded
+                        : Icons.add_circle_outline_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _generatingLesson
+                        ? 'Création de l’Étape ${levelLessons.length + 1}…'
+                        : '+ Créer l’Étape ${levelLessons.length + 1} ($_cefr • $_selectedTheme)',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1624,7 +2056,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
               }),
 
               const SizedBox(height: 6),
-              // CTA signature Learna AI : appliquer la leçon en discutant en direct avec Amy !
+              // CTA Parcours Infini : valide l'étape (+50 XP), avance l'objectif du jour et enchaîne immédiatement !
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -1632,6 +2064,29 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     backgroundColor: YitteColors.gold,
                     foregroundColor: YitteColors.inkDark,
                   ),
+                  onPressed: _generatingLesson
+                      ? null
+                      : () => _completeAndAdvanceToNextStep(lesson),
+                  icon: Icon(
+                    _generatingLesson
+                        ? Icons.hourglass_top_rounded
+                        : Icons.arrow_forward_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _generatingLesson
+                        ? 'Préparation de l’étape suivante…'
+                        : (done
+                            ? 'Étape suivante →'
+                            : 'Valider (+50 XP) & Étape suivante →'),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // CTA signature Learna AI : appliquer la leçon en discutant en direct avec Amy !
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
                   onPressed: () => _practiceLessonWithAmy(lesson),
                   icon: const Icon(Icons.forum_outlined, size: 18),
                   label: const Text('Pratiquer cette leçon avec Amy →'),
@@ -1649,7 +2104,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     size: 18,
                   ),
                   label: Text(
-                    done ? 'Leçon validée ✓' : 'Marquer cette leçon comme terminée',
+                    done ? 'Étape validée ✓' : 'Valider cette étape (+50 XP)',
                   ),
                 ),
               ),

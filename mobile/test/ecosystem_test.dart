@@ -734,17 +734,27 @@ void main() {
 
     await tester.tap(find.text('Cours'));
     await tester.pumpAndSettle();
+    expect(find.text('PARCOURS INFINI • TES OBJECTIFS'), findsOneWidget);
     expect(find.text('Parcours de perfectionnement'), findsOneWidget);
-    expect(find.textContaining('Present Perfect vs Past'), findsOneWidget);
     // Clean Learna UI: no raw external portal link dumps inside the app
     expect(find.textContaining('British Council LearnEnglish'), findsNothing);
 
-    await tester.tap(find.textContaining('Present Perfect vs Past'));
+    final b1Lesson = find.textContaining('Present Perfect vs Past');
+    await _scrollTo(tester, b1Lesson);
+    await tester.tap(b1Lesson);
     await tester.pumpAndSettle();
     expect(find.text('1. L’ESSENTIEL À MAÎTRISER'), findsOneWidget);
+    final nextStepBtn = find.text('Valider (+50 XP) & Étape suivante →');
+    await _scrollTo(tester, nextStepBtn);
+    expect(nextStepBtn, findsOneWidget);
     final practiceBtn = find.text('Pratiquer cette leçon avec Amy →');
     await _scrollTo(tester, practiceBtn);
     expect(practiceBtn, findsOneWidget);
+
+    // Advance seamlessly to Step 2 and verify +50 XP & continuous progression
+    await tester.tap(nextStepBtn);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('faux amis'), findsOneWidget);
   });
 
   testWidgets(
