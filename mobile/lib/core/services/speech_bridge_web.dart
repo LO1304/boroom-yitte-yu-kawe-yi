@@ -437,6 +437,318 @@ class SpeechBridge {
     }
   }
 
+  static List<String> _splitIntoAudioChunks(String text, {int maxChars = 172}) {
+    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) return const [];
+    if (normalized.length <= maxChars) return [normalized];
+
+    final sentences = normalized
+        .split(RegExp(r'(?<=[.!?;:])\s+'))
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
+    final chunks = <String>[];
+    String current = '';
+
+    void pushLongClause(String clause) {
+      final words = clause.split(RegExp(r'\s+'));
+      String buf = '';
+      for (final w in words) {
+        if (buf.isEmpty) {
+          buf = w;
+        } else if (buf.length + 1 + w.length <= maxChars) {
+          buf = '$buf $w';
+        } else {
+          chunks.add(buf);
+          buf = w;
+        }
+      }
+      if (buf.isNotEmpty) chunks.add(buf);
+    }
+
+    for (final s in sentences) {
+      if (s.length > maxChars) {
+        if (current.isNotEmpty) {
+          chunks.add(current);
+          current = '';
+        }
+        final parts = s.split(RegExp(r'(?<=,)\s+'));
+        for (final p in parts) {
+          if (p.length <= maxChars) {
+            if (current.isEmpty) {
+              current = p;
+            } else if (current.length + 1 + p.length <= maxChars) {
+              current = '$current $p';
+            } else {
+              chunks.add(current);
+              current = p;
+            }
+          } else {
+            if (current.isNotEmpty) {
+              chunks.add(current);
+              current = '';
+            }
+            pushLongClause(p);
+          }
+        }
+      } else if (current.isEmpty) {
+        current = s;
+      } else if (current.length + 1 + s.length <= maxChars) {
+        current = '$current $s';
+      } else {
+        chunks.add(current);
+        current = s;
+      }
+    }
+    if (current.isNotEmpty) chunks.add(current);
+    return chunks;
+  }
+
+  static Future<String?> _requestSoundOfTextUrl(
+    String chunk,
+    String voiceLocale,
+  ) async {
+    try {
+      final opts = JSObject();
+      opts['method'] = 'POST'.toJS;
+      final headers = JSObject();
+      headers['Content-Type'] = 'application/json'.toJS;
+      opts['headers'] = headers;
+      final escapedText = chunk
+          .replaceAll(r'\', r'\\')
+          .replaceAll('"', r'\"')
+          .replaceAll('\n', ' ');
+      opts['body'] =
+          '{"engine":"Google","data":{"text":"$escapedText","voice":"$voiceLocale"}}'
+              .toJS;
+
+      final postPromise = _window.callMethod(
+        'fetch'.toJS,
+        'https://api.soundoftext.com/sounds'.toJS,
+        opts,
+      );
+      if (postPromise == null || !postPromise.isA<JSPromise>()) return null;
+      final postRes = await (postPromise as JSPromise).toDart;
+      if (postRes == null || !postRes.isA<JSObject>()) return null;
+      final jsonP = (postRes as JSObject).callMethod('json'.toJS);
+      if (jsonP == null || !jsonP.isA<JSPromise>()) return null;
+      final postData = await (jsonP as JSPromise).toDart;
+      if (postData == null || !postData.isA<JSObject>()) return null;
+      final idAny = (postData as JSObject)['id'];
+      if (idAny == null || !idAny.isA<JSString>()) return null;
+      final id = (idAny as JSString).toDart;
+
+      for (int attempt = 0; attempt < 4; attempt++) {
+        await Future<void>.delayed(Duration(milliseconds: attempt == 0 ? 220 : 350));
+        final getP = _window.callMethod(
+          'fetch'.toJS,
+          'https://api.soundoftext.com/sounds/$id'.toJS,
+        );
+        if (getP == null || !getP.isA<JSPromise>()) continue;
+        final getRes = await (getP as JSPromise).toDart;
+        if (getRes == null || !getRes.isA<JSObject>()) continue;
+        final gJsonP = (getRes as JSObject).callMethod('json'.toJS);
+        if (gJsonP == null || !gJsonP.isA<JSPromise>()) continue;
+        final gData = await (gJsonP as JSPromise).toDart;
+        if (gData == null || !gData.isA<JSObject>()) continue;
+        final locAny = (gData as JSObject)['location'];
+        if (locAny != null && locAny.isA<JSString>()) {
+          final loc = (locAny as JSString).toDart;
+          if (loc.startsWith('http')) return loc;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void _playConsistentCloudQueue({
+    required String fullText,
+    required String locale,
+    required String? voiceProfile,
+    required double playbackRate,
+    required int token,
+    String? offlineAssetUrl,
+    required void Function() onFallbackWebSpeech,
+    void Function(bool isSpeaking)? onSpeakingChanged,
+    void Function(int wordIndex)? onWordIndex,
+    void Function(String engine)? onEngineUsed,
+  }) {
+    final chunks = _splitIntoAudioChunks(fullText);
+    if (chunks.isEmpty) return;
+
+    final tl = switch (voiceProfile) {
+      'amy-soft-uk' => 'en-GB',
+      'amy-clear-uk' => 'en-AU',
+      'amy-fluent-us' => 'en-US',
+      'amy-warm-us' => 'en-US',
+      _ => locale.toLowerCase().startsWith('en-gb') ? 'en-GB' : 'en-US',
+    };
+    final sotVoice = tl == 'en-AU' ? 'en-GB' : tl;
+
+    final chunkWordOffsets = <int>[];
+    int offset = 0;
+    for (final c in chunks) {
+      chunkWordOffsets.add(offset);
+      offset += c.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    }
+
+    void playChunkAt(int idx, {bool useSoundOfText = false}) async {
+      if (token != _speakToken) return;
+      if (idx >= chunks.length) {
+        _wordTicker?.cancel();
+        _ttsAudio = null;
+        onWordIndex?.call(-1);
+        onSpeakingChanged?.call(false);
+        return;
+      }
+
+      final chunk = chunks[idx];
+      final baseOffset = chunkWordOffsets[idx];
+      final words =
+          chunk.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      final cumWeights = _buildWordCumulativeWeights(words);
+
+      String? url;
+      if (useSoundOfText) {
+        url = await _requestSoundOfTextUrl(chunk, sotVoice);
+        if (token != _speakToken) return;
+        if (url == null) {
+          if (offlineAssetUrl != null && offlineAssetUrl.isNotEmpty && idx == 0) {
+            _playNeuralAudioUrl(
+              url: offlineAssetUrl,
+              fullText: fullText,
+              playbackRate: playbackRate,
+              token: token,
+              engineLabel: 'Voix Amy Intégrée (Hors-ligne)',
+              fallbackAssetUrl: null,
+              onFallbackWebSpeech: onFallbackWebSpeech,
+              onSpeakingChanged: onSpeakingChanged,
+              onWordIndex: onWordIndex,
+              onEngineUsed: onEngineUsed,
+            );
+          } else {
+            onFallbackWebSpeech();
+          }
+          return;
+        }
+      } else {
+        url =
+            'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=$tl&q=${Uri.encodeQueryComponent(chunk)}';
+      }
+
+      try {
+        final audioCtor = _window['Audio'];
+        if (audioCtor == null || !audioCtor.isA<JSFunction>()) {
+          onFallbackWebSpeech();
+          return;
+        }
+        final audio =
+            (audioCtor as JSFunction).callAsConstructor<JSObject>(url.toJS);
+        audio['referrerPolicy'] = 'no-referrer'.toJS;
+        audio['preload'] = 'auto'.toJS;
+        audio['playbackRate'] = playbackRate.clamp(0.72, 1.28).toJS;
+
+        audio['onplay'] = ((JSAny? _) {
+          if (token != _speakToken) return;
+          if (idx == 0) {
+            onEngineUsed?.call(
+              useSoundOfText
+                  ? 'Voix Amy Fluide (Cloud)'
+                  : 'Voix Amy Neurale ($tl)',
+            );
+            onSpeakingChanged?.call(true);
+          }
+          _wordTicker?.cancel();
+          _wordTicker = Timer.periodic(const Duration(milliseconds: 60), (_) {
+            if (token != _speakToken || _ttsAudio == null) {
+              _wordTicker?.cancel();
+              return;
+            }
+            try {
+              final durAny = audio['duration'];
+              final curAny = audio['currentTime'];
+              final dur = (durAny != null && durAny.isA<JSNumber>())
+                  ? (durAny as JSNumber).toDartDouble
+                  : 0.0;
+              final cur = (curAny != null && curAny.isA<JSNumber>())
+                  ? (curAny as JSNumber).toDartDouble
+                  : 0.0;
+              if (dur.isFinite && dur > 0.05 && cumWeights.isNotEmpty) {
+                final p = (cur / dur).clamp(0.0, 0.999);
+                int localIdx = 0;
+                for (int i = 0; i < cumWeights.length; i++) {
+                  if (p <= cumWeights[i]) {
+                    localIdx = i;
+                    break;
+                  }
+                }
+                onWordIndex?.call(baseOffset + localIdx);
+              }
+            } catch (_) {}
+          });
+        }).toJS;
+
+        audio['onended'] = ((JSAny? _) {
+          if (token != _speakToken) return;
+          _wordTicker?.cancel();
+          playChunkAt(idx + 1, useSoundOfText: useSoundOfText);
+        }).toJS;
+
+        audio['onerror'] = ((JSAny? _) {
+          if (token != _speakToken) return;
+          _wordTicker?.cancel();
+          _ttsAudio = null;
+          if (!useSoundOfText) {
+            playChunkAt(idx, useSoundOfText: true);
+          } else if (offlineAssetUrl != null &&
+              offlineAssetUrl.isNotEmpty &&
+              idx == 0) {
+            _playNeuralAudioUrl(
+              url: offlineAssetUrl,
+              fullText: fullText,
+              playbackRate: playbackRate,
+              token: token,
+              engineLabel: 'Voix Amy Intégrée (Hors-ligne)',
+              fallbackAssetUrl: null,
+              onFallbackWebSpeech: onFallbackWebSpeech,
+              onSpeakingChanged: onSpeakingChanged,
+              onWordIndex: onWordIndex,
+              onEngineUsed: onEngineUsed,
+            );
+          } else {
+            onFallbackWebSpeech();
+          }
+        }).toJS;
+
+        _ttsAudio = audio;
+        final playPromise = audio.callMethod('play'.toJS);
+        if (playPromise != null && playPromise.isA<JSPromise>()) {
+          (playPromise as JSPromise).toDart.catchError((_) {
+            if (token == _speakToken) {
+              _wordTicker?.cancel();
+              _ttsAudio = null;
+              if (!useSoundOfText) {
+                playChunkAt(idx, useSoundOfText: true);
+              } else {
+                onFallbackWebSpeech();
+              }
+            }
+            return null;
+          });
+        }
+      } catch (_) {
+        if (!useSoundOfText) {
+          playChunkAt(idx, useSoundOfText: true);
+        } else {
+          onFallbackWebSpeech();
+        }
+      }
+    }
+
+    playChunkAt(0);
+  }
+
   static void speak(
     String text, {
     String locale = 'en-GB',
@@ -472,7 +784,8 @@ class SpeechBridge {
           onEngineUsed: onEngineUsed,
         );
 
-    // 1. Local/LAN server Neural Studio TTS (/api/tts with Edge Neural / ElevenLabs / OpenAI)
+    // 1. Local/LAN server Neural Studio TTS (/api/tts — Edge Neural Ava/Libby/Sonia ou ElevenLabs)
+    //    100% homogène sur TOUTES les phrases et mots !
     if (_canUseLocalNeuralApi) {
       final resolvedVoice = voiceProfile ??
           (locale.toLowerCase().startsWith('en-gb')
@@ -483,11 +796,22 @@ class SpeechBridge {
       _playNeuralAudioUrl(
         url: ttsUrl,
         fullText: clean,
-        playbackRate: 1.0, // rate already synthesized naturally by Neural TTS
+        playbackRate: 1.0,
         token: token,
         engineLabel: 'Voix Neurale Studio',
         fallbackAssetUrl: assetUrl,
-        onFallbackWebSpeech: fallbackWebSpeech,
+        onFallbackWebSpeech: () => _playConsistentCloudQueue(
+          fullText: clean,
+          locale: locale,
+          voiceProfile: voiceProfile,
+          playbackRate: rate,
+          token: token,
+          offlineAssetUrl: assetUrl,
+          onFallbackWebSpeech: fallbackWebSpeech,
+          onSpeakingChanged: onSpeakingChanged,
+          onWordIndex: onWordIndex,
+          onEngineUsed: onEngineUsed,
+        ),
         onSpeakingChanged: onSpeakingChanged,
         onWordIndex: onWordIndex,
         onEngineUsed: onEngineUsed,
@@ -495,25 +819,20 @@ class SpeechBridge {
       return;
     }
 
-    // 2. Static GitHub Pages: bundled Studio Neural MP3 when available (scenario openings)
-    if (assetUrl != null) {
-      _playNeuralAudioUrl(
-        url: assetUrl,
-        fullText: clean,
-        playbackRate: rate.clamp(0.75, 1.25),
-        token: token,
-        engineLabel: 'Voix Neurale Studio (Intégrée)',
-        fallbackAssetUrl: null,
-        onFallbackWebSpeech: fallbackWebSpeech,
-        onSpeakingChanged: onSpeakingChanged,
-        onWordIndex: onWordIndex,
-        onEngineUsed: onEngineUsed,
-      );
-      return;
-    }
-
-    // 3. Static dynamic replies: upgraded Natural/Neural Browser Speech Engine
-    fallbackWebSpeech();
+    // 2. GitHub Pages / Web statique : UNE SEULE VOIX FÉMININE CLOUD MP3 FLUIDE ET HOMOGÈNE
+    //    sur 100% des ouvertures, réponses IA, mots cliqués, dialogues et exercices !
+    _playConsistentCloudQueue(
+      fullText: clean,
+      locale: locale,
+      voiceProfile: voiceProfile,
+      playbackRate: rate,
+      token: token,
+      offlineAssetUrl: assetUrl,
+      onFallbackWebSpeech: fallbackWebSpeech,
+      onSpeakingChanged: onSpeakingChanged,
+      onWordIndex: onWordIndex,
+      onEngineUsed: onEngineUsed,
+    );
   }
 
   static void stopSpeaking() {

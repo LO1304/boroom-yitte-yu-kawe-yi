@@ -1445,29 +1445,270 @@ class EnglishOpenSourceService {
     );
   }
 
-  /// Moteur de conversation multi-tours avec Amy (façon English AI : fluidité, correction inline, réaction contextuelle, suggestions).
+  static const AmyScenario freeDiscussionScenario = AmyScenario(
+    id: 'free',
+    titleFr: 'Discussion libre',
+    levelRange: 'A1–C2',
+    openingAssetPath: 'assets/audio/amy/intro.mp3',
+    openingEn:
+        "Hello! I'm Amy, your English conversation coach. Talk to me about anything you like — your day, your studies, your projects, or ask me how to say something in English. What is on your mind today?",
+    openingFr:
+        'Discussion totalement libre avec Amy ! Parlez de n’importe quel sujet (votre journée, travail, études, projets) ou demandez-lui comment dire une phrase en anglais. Amy adapte son vocabulaire à votre niveau.',
+    followUpsEn: [
+      "Tell me more about that! What happened next, or why is it important to you?",
+      "That's really interesting! How do you usually handle that in your daily routine?",
+      "Great point! What goal would you like to achieve next in 2026?",
+      "You're expressing yourself more smoothly! What else would you like to talk about today?",
+    ],
+    sampleTargetEn:
+        "Hello Amy! Today I want to talk about my projects and practise speaking English fluently.",
+    suggestedRepliesEn: [
+      "Hello Amy! Today was a busy day and I want to practise speaking English with you.",
+      "I am studying right now and I want to improve my English for international opportunities.",
+      "Could you help me practise talking about my daily routine and my goals for 2026?",
+    ],
+  );
+
+  static const List<String> cefrLevelsOrdered = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+  static String? nextCefrLevel(String current) {
+    final idx = cefrLevelsOrdered.indexOf(current.toUpperCase());
+    if (idx < 0 || idx >= cefrLevelsOrdered.length - 1) return null;
+    return cefrLevelsOrdered[idx + 1];
+  }
+
+  static String cefrStyleGuide(String cefrLevel) {
+    return switch (cefrLevel.toUpperCase()) {
+      'A1' =>
+        'CEFR A1 (Beginner): use very short, clear sentences (6-10 words), basic everyday vocabulary, present simple, and warm encouragement.',
+      'A2' =>
+        'CEFR A2 (Elementary): use simple connected sentences, daily routines, past simple & going-to future, and polite everyday expressions.',
+      'B1' =>
+        'CEFR B1 (Intermediate): speak naturally about work, studies, and experiences; reinforce Present Perfect, for/since, and connectors (because, although, however).',
+      'B2' =>
+        'CEFR B2 (Upper-Intermediate): use confident professional/academic phrasing, phrasal verbs, conditionals, and thoughtful follow-up questions.',
+      'C1' =>
+        'CEFR C1 (Advanced): use nuanced discourse markers (nevertheless, provided that, albeit), idioms, and precise stylistic upgrades.',
+      _ =>
+        'CEFR C2 (Mastery): engage at executive/scholarly fluency with subtle rhetoric, concise idioms, and refined register coaching.',
+    };
+  }
+
+  static ({String en, String fr}) openingForLevel(
+    AmyScenario scenario,
+    String cefrLevel,
+  ) {
+    if (scenario.id != 'free') {
+      return (en: scenario.openingEn, fr: scenario.openingFr);
+    }
+    return switch (cefrLevel.toUpperCase()) {
+      'A1' => (
+          en: "Hello! I am Amy. We can talk slowly in simple English. How are you today, and what is your name?",
+          fr: 'Niveau A1 (Débutant) : Amy utilise des phrases courtes et simples. Répondez librement en anglais !',
+        ),
+      'A2' => (
+          en: "Hi! I'm Amy, your English speaking partner. Tell me about your day or what you did yesterday — I will help you gently!",
+          fr: 'Niveau A2 (Élémentaire) : parlez de votre journée, de vos activités ou posez une question libre.',
+        ),
+      'B2' => (
+          en: "Hello! I'm Amy, your B2 speaking coach. Let's have a real conversation about your work, studies, or any topic on your mind today — what would you like to discuss?",
+          fr: 'Niveau B2 (Avancé) : échange naturel, phrasal verbs, conditionnels et reformulations professionnelles.',
+        ),
+      'C1' || 'C2' => (
+          en: "Welcome back! I'm Amy. At level $cefrLevel, let's dive into any nuanced topic you choose — career, ideas, technology, or society. What perspective would you like to explore today?",
+          fr: 'Niveau $cefrLevel (Maîtrise) : argumentation nuancée, expressions idiomatiques et précision stylistique.',
+        ),
+      _ => (en: scenario.openingEn, fr: scenario.openingFr),
+    };
+  }
+
+  /// Appelle le modèle conversationnel ouvert (Pollinations OpenAI-compatible, CORS *) pour une vraie discussion en direct avec Amy.
+  Future<AmyTurnReply?> _converseWithAmyLiveAi({
+    required String userInput,
+    required AmyScenario scenario,
+    required String variant,
+    required String cefrLevel,
+    required List<({bool fromAmy, String text})> history,
+    required LanguageToolCheckResult grammarCheck,
+  }) async {
+    try {
+      final levelGuide = cefrStyleGuide(cefrLevel);
+      final targetUpgradeLevel = nextCefrLevel(cefrLevel) ?? 'C2';
+      final accentNote = variant == 'en-GB'
+          ? 'British English spelling and natural UK phrasing'
+          : 'American English spelling and natural US phrasing';
+      final topicContext = scenario.id == 'free'
+          ? 'Open free conversation: respond directly to whatever topic or question the learner brings up.'
+          : 'Scenario "${scenario.titleFr}" (${scenario.levelRange}): stay natural and directly answer what the learner actually wrote.';
+
+      final systemPrompt =
+          'You are Amy, a warm, encouraging female English AI tutor for a francophone learner in the BOROOM YITTE community (founded in 2026). '
+          '$levelGuide Use $accentNote. $topicContext '
+          'If the learner writes in French or asks how to say something in English, gently teach them the English expression and continue the conversation in English. '
+          'Return ONLY valid compact JSON (no markdown code fences, no extra text) with these exact keys:\n'
+          '{"amy_reply_en":"2-3 fluent natural English sentences directly answering the learner and ending with 1 engaging follow-up question",'
+          '"translation_fr":"Accurate French translation of amy_reply_en",'
+          '"corrected_en":"Corrected English version of the learner message with ALL grammar/spelling errors fixed, or empty string if already natural and error-free",'
+          '"explanation_fr":"Short encouraging French explanation of what to improve for level $cefrLevel (or praise if error-free)",'
+          '"native_upgrade_en":"How a fluent speaker at level $targetUpgradeLevel would express the learner exact idea",'
+          '"fluency_score":82,'
+          '"estimated_cefr":"A1|A2|B1|B2|C1|C2",'
+          '"suggested_replies_en":["First-person reply 1 the STUDENT can say back to answer amy_reply_en","First-person reply 2","First-person reply 3"]}';
+
+      final messages = <Map<String, String>>[
+        {'role': 'system', 'content': systemPrompt},
+      ];
+      final recent = history.length > 6
+          ? history.sublist(history.length - 6)
+          : history;
+      for (final h in recent) {
+        messages.add({
+          'role': h.fromAmy ? 'assistant' : 'user',
+          'content': h.text,
+        });
+      }
+      messages.add({'role': 'user', 'content': userInput});
+
+      final res = await http
+          .post(
+            Uri.parse('https://text.pollinations.ai/openai'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'model': 'openai',
+              'temperature': 0.55,
+              'messages': messages,
+            }),
+          )
+          .timeout(const Duration(seconds: 11));
+
+      if (res.statusCode != 200) return null;
+      final outer = jsonDecode(res.body);
+      if (outer is! Map<String, dynamic>) return null;
+      final choices = outer['choices'];
+      if (choices is! List || choices.isEmpty) return null;
+      final content =
+          (choices.first as Map<String, dynamic>)['message']?['content']
+              ?.toString()
+              .trim();
+      if (content == null || content.isEmpty) return null;
+
+      // Strip optional ```json ... ``` wrappers cleanly
+      var jsonStr = content;
+      final firstBrace = jsonStr.indexOf('{');
+      final lastBrace = jsonStr.lastIndexOf('}');
+      if (firstBrace >= 0 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
+      }
+
+      final parsed = jsonDecode(jsonStr);
+      if (parsed is! Map<String, dynamic>) return null;
+
+      final amyReplyEn = (parsed['amy_reply_en'] ?? '').toString().trim();
+      if (amyReplyEn.isEmpty) return null;
+
+      final translationFr = (parsed['translation_fr'] ?? '').toString().trim();
+      var correctedEn = (parsed['corrected_en'] ?? '').toString().trim();
+      final explanationFr = (parsed['explanation_fr'] ?? '').toString().trim();
+      final nativeUpgrade = (parsed['native_upgrade_en'] ?? '').toString().trim();
+      final rawScore = parsed['fluency_score'];
+      final fluencyScore = (rawScore is num ? rawScore.round() : 82).clamp(45, 99);
+      final rawCefr = (parsed['estimated_cefr'] ?? cefrLevel)
+          .toString()
+          .trim()
+          .toUpperCase();
+      final estimatedCefr =
+          cefrLevelsOrdered.contains(rawCefr) ? rawCefr : cefrLevel;
+
+      final rawSug = parsed['suggested_replies_en'];
+      final suggestions = rawSug is List
+          ? rawSug
+              .map((e) => e.toString().trim())
+              .where((s) => s.isNotEmpty)
+              .take(3)
+              .toList()
+          : <String>[];
+
+      // Cross-check with LanguageTool if LLM echoed original text with known grammar error
+      if ((correctedEn.isEmpty ||
+              correctedEn.toLowerCase() == userInput.toLowerCase()) &&
+          grammarCheck.issues.isNotEmpty) {
+        correctedEn = grammarCheck.correctedText;
+      }
+      final hasCorrection = correctedEn.isNotEmpty &&
+          correctedEn.toLowerCase() != userInput.toLowerCase();
+
+      String? correctionNote;
+      if (explanationFr.isNotEmpty) {
+        correctionNote = hasCorrection
+            ? 'Coaching d’Amy ($cefrLevel) : $explanationFr\nVersion corrigée : "$correctedEn"'
+            : 'Coaching d’Amy ($cefrLevel) : $explanationFr';
+      } else if (hasCorrection) {
+        correctionNote = 'Correction d’Amy : "$correctedEn"';
+      }
+
+      return AmyTurnReply(
+        amySpeechEn: amyReplyEn,
+        amyTranslationFr: translationFr.isNotEmpty
+            ? translationFr
+            : 'Amy vous a répondu en direct selon votre niveau $cefrLevel.',
+        correctionNote: correctionNote,
+        correctedText: hasCorrection ? correctedEn : null,
+        nativeUpgrade: nativeUpgrade.isNotEmpty ? nativeUpgrade : null,
+        nextPromptEn: amyReplyEn,
+        fluencyScore: fluencyScore,
+        estimatedCefr: estimatedCefr,
+        usedLiveAi: true,
+        suggestedRepliesEn: suggestions.isNotEmpty
+            ? suggestions
+            : _buildFollowUpHints(scenario.id, 0),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Moteur de conversation multi-tours avec Amy (IA conversationnelle en direct adaptée au niveau CEFR + repli hors-ligne intelligent).
   Future<AmyTurnReply> converseWithAmy({
     required String userInput,
     required AmyScenario scenario,
     required int turnIndex,
     required String variant,
     required String cefrLevel,
+    List<({bool fromAmy, String text})> history = const [],
   }) async {
     final trimmed = userInput.trim();
     if (trimmed.isEmpty) {
+      final opening = openingForLevel(scenario, cefrLevel);
       return AmyTurnReply(
-        amySpeechEn: scenario.openingEn,
-        amyTranslationFr: scenario.openingFr,
+        amySpeechEn: opening.en,
+        amyTranslationFr: opening.fr,
         correctionNote: null,
         correctedText: null,
         nativeUpgrade: null,
-        nextPromptEn: scenario.openingEn,
+        nextPromptEn: opening.en,
         fluencyScore: 0,
+        estimatedCefr: cefrLevel,
+        usedLiveAi: false,
         suggestedRepliesEn: scenario.suggestedRepliesEn,
       );
     }
 
     final check = await checkGrammarLive(trimmed, language: variant);
+
+    // 1. Vraie discussion IA en direct (Pollinations OpenAI-compatible, CORS *, adaptée au niveau CEFR)
+    final liveReply = await _converseWithAmyLiveAi(
+      userInput: trimmed,
+      scenario: scenario,
+      variant: variant,
+      cefrLevel: cefrLevel,
+      history: history,
+      grammarCheck: check,
+    );
+    if (liveReply != null) {
+      return liveReply;
+    }
+
+    // 2. Repli hors-ligne intelligent calibré au niveau CEFR (A1 → C2)
     final hasIssues = check.issues.isNotEmpty;
     final words = trimmed.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
     final lower = trimmed.toLowerCase();
@@ -1475,17 +1716,20 @@ class EnglishOpenSourceService {
         ? 'LanguageTool en direct'
         : 'Correcteur FR→EN';
 
-    // Score de fluidité (0–100) façon English AI
     int score = 74;
     if (words >= 8) score += 8;
     if (words >= 15) score += 6;
-    if (RegExp(r'\b(because|although|however|therefore|actually|currently|finally|for example)\b')
+    if (RegExp(r'\b(because|although|however|therefore|actually|currently|finally|for example|nevertheless|provided)\b')
         .hasMatch(lower)) {
       score += 7;
     }
     score -= (check.issues.length * 8);
     if (words < 4) score -= 14;
     final fluencyScore = score.clamp(45, 99);
+
+    final estimatedCefr = fluencyScore >= 90 && words >= 14
+        ? (nextCefrLevel(cefrLevel) ?? 'C2')
+        : (fluencyScore < 62 ? 'A2' : cefrLevel);
 
     String? correctionNote;
     if (hasIssues) {
@@ -1494,10 +1738,10 @@ class EnglishOpenSourceService {
         return '« ${i.badText} » → « $repl » (${i.message})';
       }).join('\n• ');
       correctionNote =
-          'Correction d’Amy ($engineLabel) :\n• $firstIssues\nPhrase corrigée : "${check.correctedText}"';
+          'Correction d’Amy ($engineLabel • $cefrLevel) :\n• $firstIssues\nPhrase corrigée : "${check.correctedText}"';
     } else if (words < 5) {
       correctionNote =
-          'Conseil d’Amy : phrase correcte ! Ajoutez une raison ("because...") ou un exemple ("for example...") pour gagner en aisance orale.';
+          'Conseil d’Amy ($cefrLevel) : phrase correcte ! Développez avec « because... » ou un exemple concret pour progresser vers ${nextCefrLevel(cefrLevel) ?? "C2"}.';
     }
 
     final upgraded = _buildNativeUpgrade(check.correctedText, scenario.id);
@@ -1505,11 +1749,14 @@ class EnglishOpenSourceService {
         ? scenario.followUpsEn[turnIndex % scenario.followUpsEn.length]
         : "That's very interesting! Could you tell me a bit more about that?";
 
-    // Réaction contextuelle fluide (comme English AI)
     String contextualAck;
-    if (hasIssues) {
+    if (lower.contains('comment dire') || lower.contains('how do i say')) {
       contextualAck =
-          "I understood you clearly — a smooth way to say that is: \"${check.correctedText}\".";
+          "Great question! Try expressing the idea simply in English first, and I will polish it to natural $cefrLevel English for you.";
+    } else if (hasIssues) {
+      contextualAck = cefrLevel == 'A1' || cefrLevel == 'A2'
+          ? "Good try! You can say: \"${check.correctedText}\"."
+          : "I understood you clearly — a smooth way to say that is: \"${check.correctedText}\".";
     } else if (lower.contains('engineer') ||
         lower.contains('tech') ||
         lower.contains('computer') ||
@@ -1533,17 +1780,16 @@ class EnglishOpenSourceService {
           "I love that! Joining BOROOM YITTÉ in 2026 with a daily speaking habit is a brilliant decision.";
     } else if (words >= 12) {
       contextualAck =
-          "Well expressed! Your rhythm and sentence structure sounded very natural.";
+          "Well expressed! Your rhythm and sentence structure sounded very natural for level $cefrLevel.";
     } else {
       contextualAck = "Good, clear answer!";
     }
 
     final amySpeechEn = '$contextualAck $followUp';
     final amyTranslationFr = hasIssues
-        ? 'Amy vous a bien compris, vous propose une formulation plus fluide et relance la conversation.'
-        : 'Très bien exprimé (Fluidité $fluencyScore/100) ! Amy poursuit l’échange en anglais.';
+        ? 'Amy vous a bien compris, vous propose une formulation plus fluide ($cefrLevel) et relance la conversation.'
+        : 'Très bien exprimé (Fluidité $fluencyScore/100 • Niveau $estimatedCefr) ! Amy poursuit l’échange en anglais.';
 
-    // Suggestions de réponse pour le tour suivant (façon English AI "Idées de réponse")
     final nextSuggestions = _buildFollowUpHints(scenario.id, turnIndex);
 
     return AmyTurnReply(
@@ -1554,6 +1800,8 @@ class EnglishOpenSourceService {
       nativeUpgrade: upgraded,
       nextPromptEn: followUp,
       fluencyScore: fluencyScore,
+      estimatedCefr: estimatedCefr,
+      usedLiveAi: false,
       suggestedRepliesEn: nextSuggestions,
     );
   }
@@ -1647,6 +1895,8 @@ class AmyTurnReply {
   final String? nativeUpgrade;
   final String nextPromptEn;
   final int fluencyScore;
+  final String estimatedCefr;
+  final bool usedLiveAi;
   final List<String> suggestedRepliesEn;
 
   const AmyTurnReply({
@@ -1657,6 +1907,8 @@ class AmyTurnReply {
     this.nativeUpgrade,
     required this.nextPromptEn,
     this.fluencyScore = 85,
+    this.estimatedCefr = 'B1',
+    this.usedLiveAi = false,
     this.suggestedRepliesEn = const [],
   });
 }

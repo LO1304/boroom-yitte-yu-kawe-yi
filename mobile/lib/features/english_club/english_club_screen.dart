@@ -45,7 +45,15 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   bool _tappedWordLoading = false;
   String? _shadowingTarget;
   ShadowingEvaluation? _shadowingEval;
+  final List<int> _amyTurnScores = [];
+  int _solidTurnsAtLevel = 0;
+  String? _lastEstimatedCefr;
   final List<_AmyChatMessage> _amyMessages = [];
+
+  List<AmyScenario> get _allAmyScenarios => [
+        EnglishOpenSourceService.freeDiscussionScenario,
+        ...EnglishOpenSourceService.amyScenarios,
+      ];
   final _dictLookupCtrl = TextEditingController(text: 'resilience');
   final _ltCheckCtrl = TextEditingController(
     text: 'Despite of the rain, I have saw him yesterday and we discussed about informations.',
@@ -234,11 +242,12 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   }
 
   void _resetAmyScenario(int index, {bool speakNow = true}) {
-    final sc = EnglishOpenSourceService.amyScenarios[
-        index.clamp(0, EnglishOpenSourceService.amyScenarios.length - 1)];
+    final scenarios = _allAmyScenarios;
+    final sc = scenarios[index.clamp(0, scenarios.length - 1)];
+    final opening = EnglishOpenSourceService.openingForLevel(sc, _cefr);
     SpeechBridge.stopSpeaking();
     setState(() {
-      _amyScenarioIdx = index;
+      _amyScenarioIdx = index.clamp(0, scenarios.length - 1);
       _amyHints = sc.suggestedRepliesEn;
       _shadowingTarget = null;
       _shadowingEval = null;
@@ -252,18 +261,46 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         ..add(
           _AmyChatMessage(
             fromAmy: true,
-            englishText: sc.openingEn,
-            frenchNote: sc.openingFr,
+            englishText: opening.en,
+            frenchNote: opening.fr,
             bundledAssetPath: sc.openingAssetPath,
           ),
         );
     });
     if (speakNow && _amyAutoSpeak) {
       _speakAsAmy(
-        sc.openingEn,
+        opening.en,
         messageIdx: 0,
         bundledAssetPath: sc.openingAssetPath,
       );
+    }
+  }
+
+  void _promoteToNextCefr() {
+    final next = EnglishOpenSourceService.nextCefrLevel(_cefr);
+    if (next == null) return;
+    setState(() {
+      _cefr = next;
+      _solidTurnsAtLevel = 0;
+    });
+    final celebEn =
+        "Congratulations! You have unlocked CEFR level $next! From now on, I will adapt my vocabulary and questions to help you master $next English. What topic shall we explore next?";
+    final msgIdx = _amyMessages.length;
+    setState(() {
+      _amyMessages.add(
+        _AmyChatMessage(
+          fromAmy: true,
+          englishText: celebEn,
+          frenchNote:
+              'Bravo ! Vous passez au niveau $next. Amy adapte désormais son vocabulaire et ses relances à votre nouveau palier.',
+          usedLiveAi: true,
+          estimatedCefr: next,
+        ),
+      );
+      _revealedTranslations.add(msgIdx);
+    });
+    if (_amyAutoSpeak) {
+      _speakAsAmy(celebEn, messageIdx: msgIdx);
     }
   }
 
@@ -288,8 +325,13 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       return;
     }
 
-    final sc = EnglishOpenSourceService.amyScenarios[_amyScenarioIdx];
+    final scenarios = _allAmyScenarios;
+    final sc = scenarios[_amyScenarioIdx.clamp(0, scenarios.length - 1)];
     final userTurns = _amyMessages.where((m) => !m.fromAmy).length;
+    final historySnapshot = _amyMessages
+        .map((m) => (fromAmy: m.fromAmy, text: m.englishText))
+        .toList();
+
     setState(() {
       _amyMessages.add(_AmyChatMessage(fromAmy: false, englishText: text));
       _amyInputCtrl.clear();
@@ -301,11 +343,19 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       turnIndex: userTurns,
       variant: _amyVoiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US',
       cefrLevel: _cefr,
+      history: historySnapshot,
     );
     if (!mounted) return;
     final newMsgIndex = _amyMessages.length;
     setState(() {
       _amyBusy = false;
+      if (reply.fluencyScore > 0) {
+        _amyTurnScores.add(reply.fluencyScore);
+        if (reply.fluencyScore >= 80) {
+          _solidTurnsAtLevel++;
+        }
+      }
+      _lastEstimatedCefr = reply.estimatedCefr;
       if (reply.suggestedRepliesEn.isNotEmpty) {
         _amyHints = reply.suggestedRepliesEn;
       }
@@ -318,6 +368,8 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
           correctedText: reply.correctedText,
           nativeUpgrade: reply.nativeUpgrade,
           fluencyScore: reply.fluencyScore,
+          estimatedCefr: reply.estimatedCefr,
+          usedLiveAi: reply.usedLiveAi,
         ),
       );
     });
@@ -517,7 +569,16 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     items: const ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
                         .map((l) => DropdownMenuItem(value: l, child: Text(l)))
                         .toList(),
-                    onChanged: (v) => setState(() => _cefr = v ?? 'B1'),
+                    onChanged: (v) {
+                      final nextLvl = v ?? 'B1';
+                      setState(() {
+                        _cefr = nextLvl;
+                        _solidTurnsAtLevel = 0;
+                      });
+                      if (_amyMessages.where((m) => !m.fromAmy).isEmpty) {
+                        _resetAmyScenario(_amyScenarioIdx, speakNow: false);
+                      }
+                    },
                   ),
                 ),
               ],
@@ -561,9 +622,9 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         .length;
 
     return [
-      // Accès direct à Amy (Professeure IA féminine vocale)
+      // Accès direct à Amy (Discussion IA vocale adaptée au niveau CEFR — compact)
       Container(
-        padding: const EdgeInsets.all(13),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: YitteColors.emerald,
           borderRadius: BorderRadius.circular(12),
@@ -572,8 +633,8 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         child: Row(
           children: [
             Container(
-              width: 42,
-              height: 42,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: YitteColors.gold,
@@ -584,50 +645,76 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   'A',
                   style: TextStyle(
                     fontFamily: YitteFonts.display,
-                    fontSize: 20,
+                    fontSize: 19,
                     fontWeight: FontWeight.w700,
                     color: YitteColors.inkDark,
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Parler en direct avec Amy (IA)',
-                    style: TextStyle(
+                  Text(
+                    'Discuter avec Amy (IA • $_cefr)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
                       color: YitteColors.ivory,
                       fontWeight: FontWeight.w700,
-                      fontSize: 14,
+                      fontSize: 13.5,
                     ),
                   ),
                   Text(
-                    'Voix féminine UK/US • 6 scénarios • Correction en direct',
+                    'Discussion libre • Voix fluide • Cap $_cefr→${EnglishOpenSourceService.nextCefrLevel(_cefr) ?? "C2"}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: YitteColors.ivory.withValues(alpha: 0.8),
-                      fontSize: 11.5,
+                      color: YitteColors.ivory.withValues(alpha: 0.82),
+                      fontSize: 11,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
+            IconButton(
+              tooltip: 'Parler au micro avec Amy',
+              visualDensity: VisualDensity.compact,
+              onPressed: () {
+                setState(() => _activeTab = 1);
+                SpeechBridge.stopSpeaking();
+                final started = SpeechBridge.startDictation(
+                  locale: _amyVoiceProfile.endsWith('-uk') ? 'en-GB' : 'en-US',
+                  onTranscript: (t) {
+                    if (!mounted) return;
+                    setState(() => _amyInputCtrl.text = t);
+                  },
+                  onError: (err) {
+                    if (!mounted) return;
+                    setState(() => _amyListening = false);
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text(err)));
+                  },
+                );
+                if (started) setState(() => _amyListening = true);
+              },
+              icon: const Icon(Icons.mic_rounded, color: YitteColors.gold, size: 20),
+            ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: YitteColors.gold,
                 foregroundColor: YitteColors.inkDark,
                 visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               ),
               onPressed: () {
                 setState(() => _activeTab = 1);
                 if (_amyAutoSpeak && _amyMessages.isNotEmpty) {
-                  final lastIdx = _amyMessages.lastIndexWhere((m) => m.fromAmy);
+                  final lastIdx =
+                      _amyMessages.lastIndexWhere((m) => m.fromAmy);
                   if (lastIdx >= 0) {
                     final m = _amyMessages[lastIdx];
                     _speakAsAmy(
@@ -638,7 +725,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   }
                 }
               },
-              child: const Text('Parler →'),
+              child: const Text('Discuter →'),
             ),
           ],
         ),
@@ -1698,13 +1785,19 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   /// Onglet 1 : Conversation Orale & Lecture Fluide avec Amy (inspiré d'English AI).
   List<Widget> _buildAmyConversationTab(BuildContext context) {
     final tokens = AppTheme.tokensOf(context);
-    final scenarios = EnglishOpenSourceService.amyScenarios;
+    final scenarios = _allAmyScenarios;
     final active = scenarios[_amyScenarioIdx.clamp(0, scenarios.length - 1)];
+    final nextLevel = EnglishOpenSourceService.nextCefrLevel(_cefr);
+    final avgFluency = _amyTurnScores.isEmpty
+        ? null
+        : (_amyTurnScores.reduce((a, b) => a + b) / _amyTurnScores.length)
+            .round();
+    final levelRatio = (_solidTurnsAtLevel / 3).clamp(0.0, 1.0);
 
     const voiceProfiles = [
-      (id: 'amy-fluent-us', label: 'Amy Fluide (Ava · US)'),
-      (id: 'amy-soft-uk', label: 'Amy Douce (Libby · UK)'),
-      (id: 'amy-clear-uk', label: 'Amy Claire (Sonia · UK)'),
+      (id: 'amy-fluent-us', label: 'Amy Fluide (US)'),
+      (id: 'amy-soft-uk', label: 'Amy Douce (UK)'),
+      (id: 'amy-clear-uk', label: 'Amy Claire (AU/UK)'),
     ];
     const speeds = [
       (rate: 0.78, label: '0.8× Lent'),
@@ -1904,6 +1997,87 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 10),
+            // Barre de progression adaptative par niveau CEFR (A1 → C2)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: YitteColors.gold.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          nextLevel != null
+                              ? 'Niveau actif : $_cefr • Cap vers $nextLevel ($_solidTurnsAtLevel/3 échanges réussis)'
+                              : 'Niveau actif : $_cefr (Maîtrise complète)',
+                          style: const TextStyle(
+                            color: YitteColors.ivory,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (avgFluency != null)
+                        Text(
+                          'Moy. $avgFluency/100',
+                          style: const TextStyle(
+                            color: YitteColors.gold,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (nextLevel != null) ...[
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: levelRatio,
+                        minHeight: 5,
+                        backgroundColor: Colors.white.withValues(alpha: 0.16),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          YitteColors.gold,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (_solidTurnsAtLevel >= 3 && nextLevel != null) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: YitteColors.gold,
+                          foregroundColor: YitteColors.inkDark,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: _promoteToNextCefr,
+                        icon: const Icon(Icons.trending_up_rounded, size: 16),
+                        label: Text('Passer au niveau supérieur ($nextLevel) →'),
+                      ),
+                    ),
+                  ] else if (_lastEstimatedCefr != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Dernier niveau détecté par Amy : $_lastEstimatedCefr',
+                      style: TextStyle(
+                        color: YitteColors.ivory.withValues(alpha: 0.78),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -2026,7 +2200,10 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       m.fromAmy ? 'AMY (COACH IA)' : 'VOUS',
@@ -2039,11 +2216,11 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                             : Theme.of(context).colorScheme.primary,
                       ),
                     ),
-                    if (m.fluencyScore != null && m.fluencyScore! > 0) ...[
-                      const SizedBox(width: 8),
+                    if (m.fluencyScore != null && m.fluencyScore! > 0)
                       YitteStatusPill(label: 'Fluidité ${m.fluencyScore}/100'),
-                    ],
-                    const Spacer(),
+                    if (m.estimatedCefr != null && m.estimatedCefr!.isNotEmpty)
+                      YitteStatusPill(label: m.estimatedCefr!),
+                    if (m.usedLiveAi) const YitteStatusPill(label: 'IA live'),
                     if (isThisSpeaking)
                       const YitteStatusPill(
                         icon: Icons.graphic_eq_rounded,
@@ -2559,6 +2736,8 @@ class _AmyChatMessage {
   final String? correctedText;
   final String? nativeUpgrade;
   final int? fluencyScore;
+  final String? estimatedCefr;
+  final bool usedLiveAi;
   final String? bundledAssetPath;
 
   const _AmyChatMessage({
@@ -2569,6 +2748,8 @@ class _AmyChatMessage {
     this.correctedText,
     this.nativeUpgrade,
     this.fluencyScore,
+    this.estimatedCefr,
+    this.usedLiveAi = false,
     this.bundledAssetPath,
   });
 }
