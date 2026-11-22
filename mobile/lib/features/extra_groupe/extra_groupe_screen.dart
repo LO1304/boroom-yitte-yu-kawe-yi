@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:uuid/uuid.dart';
@@ -224,14 +225,29 @@ class _ExtraGroupeScreenState extends ConsumerState<ExtraGroupeScreen> {
                           icon: const Icon(Icons.share_outlined, size: 18),
                           label: const Text('Partager sur WhatsApp'),
                           onPressed: () {
-                            final url = WhatsAppBridgeService.buildShareUrl(
-                              'BOROOM YITTÉ YU KAWÉ YI — Extra Groupe\n'
-                              'Invité : ${active.guest.fullName}\n'
-                              'Thème : ${active.theme}\n'
-                              'Date : ${active.scheduledAt.day.toString().padLeft(2, '0')}/${active.scheduledAt.month.toString().padLeft(2, '0')}/${active.scheduledAt.year}',
-                              groupInviteUrl: eco.whatsappInviteUrl,
+                            final dateLabel =
+                                '${active.scheduledAt.day.toString().padLeft(2, '0')}/${active.scheduledAt.month.toString().padLeft(2, '0')}/${active.scheduledAt.year}';
+                            final formatted =
+                                WhatsAppBridgeService.formatTopicQuestionsDigest(
+                              subjectTitle: active.theme,
+                              contextLabel:
+                                  'Extra Groupe • Invité : ${active.guest.fullName}',
+                              subtitle: 'Date prévue : $dateLabel',
+                              items: active.questions
+                                  .map(
+                                    (q) => (
+                                      author: q.authorName,
+                                      text: q.questionText,
+                                      answer: q.answerText,
+                                    ),
+                                  )
+                                  .toList(),
                             );
-                            ExternalLinkBridge.openUrl(url);
+                            _shareFormattedToWhatsApp(
+                              context,
+                              formatted,
+                              eco.whatsappInviteUrl,
+                            );
                           },
                         ),
                       ],
@@ -263,7 +279,36 @@ class _ExtraGroupeScreenState extends ConsumerState<ExtraGroupeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SectionHeader(title: 'Questions Préparées & Échanges'),
+                    SectionHeader(
+                      title: 'Questions Préparées & Échanges',
+                      actionLabel: active.questions.isNotEmpty
+                          ? 'Partager tout (WhatsApp)'
+                          : null,
+                      onAction: active.questions.isNotEmpty
+                          ? () {
+                              final formatted = WhatsAppBridgeService
+                                  .formatTopicQuestionsDigest(
+                                subjectTitle: active.theme,
+                                contextLabel:
+                                    'Extra Groupe • Invité : ${active.guest.fullName}',
+                                items: active.questions
+                                    .map(
+                                      (q) => (
+                                        author: q.authorName,
+                                        text: q.questionText,
+                                        answer: q.answerText,
+                                      ),
+                                    )
+                                    .toList(),
+                              );
+                              _shareFormattedToWhatsApp(
+                                context,
+                                formatted,
+                                eco.whatsappInviteUrl,
+                              );
+                            }
+                          : null,
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -312,9 +357,43 @@ class _ExtraGroupeScreenState extends ConsumerState<ExtraGroupeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                '${q.authorName} :',
-                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${q.authorName} :',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Partager cette question sur WhatsApp',
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    icon: const Icon(
+                                      Icons.share_outlined,
+                                      size: 18,
+                                      color: YitteColors.emerald,
+                                    ),
+                                    onPressed: () {
+                                      final formatted = WhatsAppBridgeService
+                                          .formatSingleMemberQuestion(
+                                        subjectTitle: active.theme,
+                                        contextLabel:
+                                            'Extra Groupe • Invité : ${active.guest.fullName}',
+                                        authorName: q.authorName,
+                                        questionText: q.questionText,
+                                        answerText: q.answerText,
+                                      );
+                                      _shareFormattedToWhatsApp(
+                                        context,
+                                        formatted,
+                                        eco.whatsappInviteUrl,
+                                      );
+                                    },
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 4),
                               Text(q.questionText),
@@ -477,6 +556,24 @@ class _ExtraGroupeScreenState extends ConsumerState<ExtraGroupeScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  void _shareFormattedToWhatsApp(
+    BuildContext context,
+    String formattedMessage,
+    String? inviteUrl,
+  ) {
+    final url = WhatsAppBridgeService.buildShareUrl(
+      formattedMessage,
+      groupInviteUrl: inviteUrl,
+    );
+    Clipboard.setData(ClipboardData(text: formattedMessage));
+    ExternalLinkBridge.openUrl(url);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Message prêt pour WhatsApp (et copié dans le presse-papiers).'),
       ),
     );
   }

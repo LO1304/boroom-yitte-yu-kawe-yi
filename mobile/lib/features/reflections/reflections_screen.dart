@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -369,11 +370,21 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                       icon: const Icon(Icons.share_outlined, size: 20),
                       onPressed: () {
                         final eco = ref.read(ecosystemProvider);
-                        final url = WhatsAppBridgeService.buildShareUrl(
-                          'BOROOM YITTÉ YU KAWÉ YI — Réflexion\n${p.title}\n\n${p.body}',
-                          groupInviteUrl: eco.whatsappInviteUrl,
+                        final formatted =
+                            WhatsAppBridgeService.formatReflectionForWhatsApp(
+                          title: p.title,
+                          authorName: p.authorName,
+                          body: p.body,
+                          mainQuestions: p.mainQuestions,
+                          comments: p.comments
+                              .map((c) => (author: c.authorName, body: c.body))
+                              .toList(),
                         );
-                        ExternalLinkBridge.openUrl(url);
+                        _shareFormattedToWhatsApp(
+                          context,
+                          formatted,
+                          eco.whatsappInviteUrl,
+                        );
                       },
                     ),
                     IconButton(
@@ -399,13 +410,52 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                       padding: const EdgeInsets.only(top: 6),
                       child: Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: AppTheme.tokensOf(context).subtleFill,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text('${c.authorName} : ${c.body}',
-                            style: const TextStyle(fontSize: 12.5)),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${c.authorName} : ${c.body}',
+                                style: const TextStyle(fontSize: 12.5),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              tooltip: 'Partager sur WhatsApp',
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: const Icon(
+                                Icons.share_outlined,
+                                size: 16,
+                                color: YitteColors.emerald,
+                              ),
+                              onPressed: () {
+                                final eco = ref.read(ecosystemProvider);
+                                final formatted = WhatsAppBridgeService
+                                    .formatSingleMemberQuestion(
+                                  subjectTitle: p.title,
+                                  contextLabel: 'Réflexion & Échange communautaire',
+                                  authorName: c.authorName,
+                                  questionText: c.body,
+                                );
+                                _shareFormattedToWhatsApp(
+                                  context,
+                                  formatted,
+                                  eco.whatsappInviteUrl,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -417,11 +467,30 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
     );
   }
 
+  void _shareFormattedToWhatsApp(
+    BuildContext context,
+    String formattedMessage,
+    String? inviteUrl,
+  ) {
+    final url = WhatsAppBridgeService.buildShareUrl(
+      formattedMessage,
+      groupInviteUrl: inviteUrl,
+    );
+    Clipboard.setData(ClipboardData(text: formattedMessage));
+    ExternalLinkBridge.openUrl(url);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Message prêt pour WhatsApp (et copié dans le presse-papiers).'),
+      ),
+    );
+  }
+
   Widget _buildWeeklyTopic(
     BuildContext context,
     WeeklyTopicModel topic,
     UserProfile? profile,
   ) {
+    final eco = ref.read(ecosystemProvider);
     final summary = topic.summary;
 
     return ListView(
@@ -433,7 +502,27 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
           subtitle: topic.introduction,
         ),
         const SizedBox(height: 16),
-        const SectionHeader(title: 'Questions directrices'),
+        SectionHeader(
+          title: 'Questions directrices',
+          actionLabel: 'Partager sur WhatsApp',
+          onAction: () {
+            final items = <({String? author, String text, String? answer})>[
+              ...topic.guidingQuestions.map(
+                (q) => (author: null, text: q, answer: null),
+              ),
+              ...topic.contributions.map(
+                (c) => (author: 'Membre du cercle', text: c, answer: null),
+              ),
+            ];
+            final formatted = WhatsAppBridgeService.formatTopicQuestionsDigest(
+              subjectTitle: topic.title,
+              contextLabel: 'Débat de la Semaine • S${topic.weekNumber}',
+              subtitle: topic.introduction,
+              items: items,
+            );
+            _shareFormattedToWhatsApp(context, formatted, eco.whatsappInviteUrl);
+          },
+        ),
         const SizedBox(height: 8),
         ...topic.guidingQuestions.map(
           (q) => Card(
@@ -441,6 +530,27 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
             child: ListTile(
               leading: const Icon(Icons.help_outline_rounded, color: YitteColors.gold),
               title: Text(q, style: const TextStyle(fontSize: 13.5)),
+              trailing: IconButton(
+                tooltip: 'Partager cette question sur WhatsApp',
+                icon: const Icon(
+                  Icons.share_outlined,
+                  size: 18,
+                  color: YitteColors.emerald,
+                ),
+                onPressed: () {
+                  final formatted =
+                      WhatsAppBridgeService.formatSingleMemberQuestion(
+                    subjectTitle: topic.title,
+                    contextLabel: 'Débat de la Semaine • S${topic.weekNumber}',
+                    questionText: q,
+                  );
+                  _shareFormattedToWhatsApp(
+                    context,
+                    formatted,
+                    eco.whatsappInviteUrl,
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -476,14 +586,63 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        const SectionHeader(title: 'Contributions & Validation Éditoriale'),
+        SectionHeader(
+          title: 'Contributions & Validation Éditoriale',
+          actionLabel: topic.contributions.isNotEmpty ? 'Tout partager' : null,
+          onAction: topic.contributions.isNotEmpty
+              ? () {
+                  final formatted =
+                      WhatsAppBridgeService.formatTopicQuestionsDigest(
+                    subjectTitle: topic.title,
+                    contextLabel: 'Contributions des membres • S${topic.weekNumber}',
+                    items: topic.contributions
+                        .map(
+                          (c) => (author: 'Membre', text: c, answer: null),
+                        )
+                        .toList(),
+                  );
+                  _shareFormattedToWhatsApp(
+                    context,
+                    formatted,
+                    eco.whatsappInviteUrl,
+                  );
+                }
+              : null,
+        ),
         const SizedBox(height: 8),
         ...topic.contributions.map(
           (c) => Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(c),
+              padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: Text(c)),
+                  IconButton(
+                    tooltip: 'Partager cette contribution sur WhatsApp',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(
+                      Icons.share_outlined,
+                      size: 18,
+                      color: YitteColors.emerald,
+                    ),
+                    onPressed: () {
+                      final formatted =
+                          WhatsAppBridgeService.formatSingleMemberQuestion(
+                        subjectTitle: topic.title,
+                        contextLabel: 'Débat de la Semaine • S${topic.weekNumber}',
+                        questionText: c,
+                      );
+                      _shareFormattedToWhatsApp(
+                        context,
+                        formatted,
+                        eco.whatsappInviteUrl,
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
         ),

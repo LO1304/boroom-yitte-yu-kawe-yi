@@ -622,6 +622,28 @@ void main() {
     expect(find.text('Ouvrir le groupe WhatsApp'), findsOneWidget);
     expect(find.text('Importer & Archiver (.txt)'), findsOneWidget);
     expect(find.text('Exporter Digest PDF'), findsOneWidget);
+
+    final singleQ = WhatsAppBridgeService.formatSingleMemberQuestion(
+      subjectTitle: 'Une majorité en nombre, mais qu’en est-il des valeurs ?',
+      contextLabel: 'Débat de la Semaine • S46',
+      authorName: 'Sokhna Diarra',
+      questionText: 'Comment incarner nos valeurs au quotidien ?',
+    );
+    expect(singleQ, contains('*BOROOM YITTÉ YU KAWÉ YI*'));
+    expect(singleQ, contains('*Question de Sokhna Diarra :*'));
+    expect(singleQ, contains('> « Comment incarner nos valeurs au quotidien ? »'));
+
+    final digest = WhatsAppBridgeService.formatTopicQuestionsDigest(
+      subjectTitle: 'Extra Groupe',
+      items: const [
+        (author: 'Aminata', text: 'Première question ?', answer: null),
+        (author: 'Moussa', text: 'Deuxième question ?', answer: 'Réponse clé.'),
+      ],
+    );
+    expect(digest, contains('*Questions & échanges (2) :*'));
+    expect(digest, contains('*1. Aminata*'));
+    expect(digest, contains('*2. Moussa*'));
+    expect(digest, contains('↳ Réponse : Réponse clé.'));
   });
 
   testWidgets(
