@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+﻿import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -32,20 +33,30 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   static const _lastStudyDatePrefKey = 'yitte_learna_last_date_v1';
   static const _streakPrefKey = 'yitte_learna_streak_v1';
   static const _xpPrefKey = 'yitte_learna_xp_v1';
+  static const _amyVoiceServerPrefKey = 'yitte_amy_voice_server_v1';
 
-  // 0 = Discuter (Amy), 1 = Ensemble (Communauté), 2 = Cours (Duolingo), 3 = Vocabulaire
+  // 0 = Discuter (Amy), 1 = Ensemble (Groupe social), 2 = Cours (Duolingo), 3 = Mots
   int _activeTab = 0;
   String _cefr = 'B1';
   String _voiceProfile = 'amy-soft-uk'; // amy-soft-uk (UK) | amy-fluent-us (US)
   double _speechRate = 0.96; // 0.96 (Fluide) | 0.78 (Lent)
+  final bool _strictRealAmyVoice = true;
+  bool _cloneSetupNeeded = false;
+  String _amyVoiceServerUrl = '';
 
-  // Espace communautaire "Pratiquer l'anglais ensemble"
+  // Espace communautaire "Pratiquer l'anglais ensemble" (façon Telegram / WhatsApp)
   final _circleTextCtrl = TextEditingController();
-  bool _circleConsent = true;
+  final _circleScrollCtrl = ScrollController();
   String? _circleRecordedUrl;
   int _circleRecordedSec = 0;
+  bool _circleRecording = false;
+  int _circleLiveSec = 0;
+  Timer? _circleRecTimer;
+  bool _playingCirclePreview = false;
   String? _playingCircleAudioId;
   bool _playingRealAmyIntro = false;
+  EnglishCirclePostModel? _replyingToPost;
+  final Set<String> _myLocalCirclePostIds = {};
 
   // Conversation naturelle avec Amy (façon Learna AI)
   int _topicIdx = 0;
@@ -59,7 +70,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   int _speakingWordIdx = -1;
   bool _showHelpDrawer = false;
   List<String> _currentHints = const [];
-  final Set<int> _revealedTranslations = {};
+  final Set<int> _hiddenTranslations = {};
   final List<_ChatBubble> _messages = [];
   final List<int> _turnScores = [];
   int _solidTurnsAtLevel = 0;
@@ -104,10 +115,12 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
 
   @override
   void dispose() {
+    _circleRecTimer?.cancel();
     _chatInputCtrl.dispose();
     _chatScrollCtrl.dispose();
     _dictCtrl.dispose();
     _circleTextCtrl.dispose();
+    _circleScrollCtrl.dispose();
     if (_listening) SpeechBridge.stopDictation();
     SpeechBridge.stopSpeaking();
     SpeechBridge.stopAudioPlayback();
@@ -138,6 +151,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     final savedToday = prefs.getInt(_todayDonePrefKey) ?? 0;
     final savedStreak = prefs.getInt(_streakPrefKey) ?? 1;
     final savedXp = prefs.getInt(_xpPrefKey) ?? 0;
+    final savedVoiceServer = prefs.getString(_amyVoiceServerPrefKey) ?? '';
 
     final parsedGen = <LearnaLesson>[];
     if (savedGen != null && savedGen.isNotEmpty) {
@@ -170,6 +184,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       _todayDone = isSameDay ? savedToday : 0;
       _streakDays = savedStreak < 1 ? 1 : savedStreak;
       _totalXp = savedXp;
+      _amyVoiceServerUrl = savedVoiceServer;
     });
   }
 
@@ -295,6 +310,12 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       rate: overrideRate ?? _speechRate,
       preferFemale: true,
       voiceProfile: _voiceProfile,
+      strictRealVoiceOnly: _strictRealAmyVoice,
+      voiceServerBaseUrl: _amyVoiceServerUrl,
+      onEngineUsed: (engine) {
+        if (!mounted) return;
+        setState(() => _cloneSetupNeeded = engine == 'clone-required');
+      },
       onSpeakingChanged: (speaking) {
         if (!mounted) return;
         setState(() {
@@ -328,7 +349,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       _tappedWord = null;
       _tappedWordDef = null;
       _currentHints = topic.starterHintsEn;
-      _revealedTranslations.clear();
+      _hiddenTranslations.clear();
       _messages
         ..clear()
         ..add(
@@ -371,7 +392,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       _showHelpDrawer = false;
       _tappedWord = null;
       _currentHints = custom.starterHintsEn;
-      _revealedTranslations.clear();
+      _hiddenTranslations.clear();
       _messages
         ..clear()
         ..add(
@@ -825,10 +846,55 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     size: 20,
                   ),
                 ),
+                IconButton(
+                  tooltip: 'Voix réelle clonée d’Amy',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                  onPressed: () => _openVoiceCloneConfigDialog(context),
+                  icon: const Icon(
+                    Icons.graphic_eq_rounded,
+                    color: YitteColors.ivory,
+                    size: 18,
+                  ),
+                ),
               ],
             ),
           ),
         ),
+        if (_cloneSetupNeeded)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              decoration: BoxDecoration(
+                color: tokens.goldSurface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: tokens.borderAccent),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.record_voice_over_outlined,
+                      size: 16, color: tokens.goldAccent),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Mode voix réelle d’Amy uniquement (aucune voix robotique). Activez le clonage pour l’entendre sur vos questions.',
+                      style: TextStyle(fontSize: 11.5, height: 1.3),
+                    ),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    onPressed: () => _openVoiceCloneConfigDialog(context),
+                    child: const Text('Activer'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
 
         // 2. Sélecteur horizontal de sujets naturels (façon Learna AI)
@@ -1147,7 +1213,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     YitteSurfaceTokens tokens,
   ) {
     final isSpeakingThis = _amySpeaking && _speakingMsgIdx == msgIdx;
-    final showFr = _revealedTranslations.contains(msgIdx);
+    final showFr = !_hiddenTranslations.contains(msgIdx);
     final words = m.englishText
         .trim()
         .split(RegExp(r'\s+'))
@@ -1175,6 +1241,31 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: YitteColors.emerald.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'EN',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: YitteColors.emerald,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Amy • Transcription bilingue',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             Wrap(
               spacing: 4,
               runSpacing: 4,
@@ -1213,11 +1304,36 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
               const SizedBox(height: 8),
               Divider(height: 1, color: tokens.borderSubtle),
               const SizedBox(height: 6),
-              Text(
-                m.frenchTranslation!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontStyle: FontStyle.italic,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: YitteColors.gold.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(4),
                     ),
+                    child: Text(
+                      'FR',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: tokens.goldAccent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      m.frenchTranslation!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            height: 1.38,
+                          ),
+                    ),
+                  ),
+                ],
               ),
             ],
             const SizedBox(height: 8),
@@ -1244,12 +1360,12 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                   const SizedBox(width: 12),
                   _MiniBubbleAction(
                     icon: Icons.translate_rounded,
-                    label: showFr ? 'Masquer' : 'Traduire',
+                    label: showFr ? 'Masquer FR' : 'Afficher FR',
                     onTap: () => setState(() {
                       if (showFr) {
-                        _revealedTranslations.remove(msgIdx);
+                        _hiddenTranslations.add(msgIdx);
                       } else {
-                        _revealedTranslations.add(msgIdx);
+                        _hiddenTranslations.remove(msgIdx);
                       }
                     }),
                   ),
@@ -1428,8 +1544,213 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     );
   }
 
+  Future<void> _openVoiceCloneConfigDialog(BuildContext context) async {
+    final urlCtrl = TextEditingController(text: _amyVoiceServerUrl);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Voix réelle clonée d’Amy'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'La voix robotique du navigateur est désactivée. L’échantillon réel d’Amy (amy_real_intro.ogg) est déjà intégré dans le projet.',
+                style: TextStyle(fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _toggleRealAmyIntroAudio,
+                icon: Icon(
+                  _playingRealAmyIntro
+                      ? Icons.stop_rounded
+                      : Icons.play_arrow_rounded,
+                ),
+                label: Text(
+                  _playingRealAmyIntro
+                      ? 'Arrêter l’échantillon réel'
+                      : 'Écouter la vraie voix d’Amy',
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Pour cloner sa voix sur TOUTES vos questions en direct :\n'
+                '1. Ajoutez ELEVENLABS_API_KEY=... ou FISH_API_KEY=... dans le fichier .env du serveur.\n'
+                '2. Le serveur clone automatiquement amy_real_intro.ogg dès la première phrase.\n'
+                '3. Sur GitHub Pages, indiquez ci-dessous l’URL de votre serveur vocal (laissez vide en local) :',
+                style: TextStyle(fontSize: 12, height: 1.45),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: urlCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'URL du serveur vocal (optionnel)',
+                  hintText: 'Ex : http://127.0.0.1:8080',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final next = urlCtrl.text.trim();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString(_amyVoiceServerPrefKey, next);
+              if (!mounted) return;
+              setState(() {
+                _amyVoiceServerUrl = next;
+                _cloneSetupNeeded = false;
+              });
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startCircleVoiceRecording(AudioService audio) async {
+    try {
+      SpeechBridge.stopAudioPlayback();
+      SpeechBridge.stopSpeaking();
+      await audio.startRecording(prefix: 'english_circle');
+      _circleRecTimer?.cancel();
+      setState(() {
+        _circleRecording = true;
+        _circleLiveSec = 0;
+        _circleRecordedUrl = null;
+        _circleRecordedSec = 0;
+        _playingCirclePreview = false;
+      });
+      _circleRecTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _circleRecording) {
+          setState(() => _circleLiveSec++);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Micro indisponible : $e')),
+      );
+    }
+  }
+
+  Future<void> _cancelCircleVoiceRecording(AudioService audio) async {
+    _circleRecTimer?.cancel();
+    if (_circleRecording) {
+      try {
+        await audio.stopRecording();
+      } catch (_) {}
+    }
+    SpeechBridge.stopAudioPlayback();
+    if (!mounted) return;
+    setState(() {
+      _circleRecording = false;
+      _circleLiveSec = 0;
+      _circleRecordedUrl = null;
+      _circleRecordedSec = 0;
+      _playingCirclePreview = false;
+    });
+  }
+
+  Future<void> _stopCircleVoiceRecording(AudioService audio) async {
+    _circleRecTimer?.cancel();
+    if (!_circleRecording) return;
+    final dur = _circleLiveSec < 1 ? 1 : _circleLiveSec;
+    String? path;
+    try {
+      path = await audio.stopRecording();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _circleRecording = false;
+      _circleLiveSec = 0;
+      _circleRecordedUrl = path;
+      _circleRecordedSec = path != null ? dur : 0;
+      _playingCirclePreview = false;
+    });
+  }
+
+  Future<void> _sendCircleMessage(
+    AudioService audio,
+    UserProfile? profile,
+  ) async {
+    if (_circleRecording) {
+      await _stopCircleVoiceRecording(audio);
+    }
+    final txt = _circleTextCtrl.text.trim();
+    final audioUrl = _circleRecordedUrl;
+    final durSec = _circleRecordedSec;
+
+    if (txt.isEmpty && (audioUrl == null || audioUrl.isEmpty)) {
+      return;
+    }
+
+    // Si l'utilisateur répond/corrige un message précis du groupe
+    if (_replyingToPost != null && txt.isNotEmpty) {
+      ref.read(ecosystemProvider.notifier).addEnglishCircleFeedback(
+            postId: _replyingToPost!.id,
+            authorName: profile?.fullName ?? 'Membre du cercle',
+            note: 'Réponse / correction dans le groupe',
+            suggestedCorrection: txt,
+          );
+      setState(() {
+        _replyingToPost = null;
+        _circleTextCtrl.clear();
+        _circleRecordedUrl = null;
+        _circleRecordedSec = 0;
+      });
+      return;
+    }
+
+    final beforeCount = ref.read(ecosystemProvider).englishCirclePosts.length;
+    ref.read(ecosystemProvider.notifier).addEnglishCirclePost(
+          authorId: profile?.id ?? 'local_member',
+          authorName: profile?.fullName ?? 'Vous (Membre)',
+          cefrLevel: _cefr,
+          englishText: txt.isNotEmpty
+              ? txt
+              : '🎙 Note vocale en anglais (${durSec}s)',
+          audioUrl: audioUrl,
+          audioDurationSeconds: durSec,
+        );
+    final postsAfter = ref.read(ecosystemProvider).englishCirclePosts;
+    if (postsAfter.length > beforeCount) {
+      _myLocalCirclePostIds.add(postsAfter.first.id);
+    }
+    setState(() {
+      _circleTextCtrl.clear();
+      _circleRecordedUrl = null;
+      _circleRecordedSec = 0;
+      _playingCirclePreview = false;
+      _replyingToPost = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_circleScrollCtrl.hasClients) {
+        _circleScrollCtrl.animateTo(
+          _circleScrollCtrl.position.maxScrollExtent + 120,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  String _formatCircleDuration(int sec) {
+    final m = (sec ~/ 60).toString();
+    final s = (sec % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
-  // ONGLET 1 : PRATIQUER L'ANGLAIS ENSEMBLE (COMMUNAUTÉ — DISTINCT D'AMY)
+  // ONGLET 1 : GROUPE SOCIAL ANGLAIS (FAÇON TELEGRAM / WHATSAPP)
   // ═══════════════════════════════════════════════════════════════════════
   Widget _buildTogetherTab(
     BuildContext context,
@@ -1439,84 +1760,53 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     final tokens = AppTheme.tokensOf(context);
     final profile = ref.watch(authProvider);
     final isEditorOrAdmin = profile?.role.isEditorOrAbove ?? false;
+    // Ordre chronologique façon Telegram (les plus récents en bas)
+    final orderedPosts = eco.englishCirclePosts.reversed.toList();
+    final hasDraftToSend =
+        _circleTextCtrl.text.trim().isNotEmpty || _circleRecordedUrl != null;
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
+    return Column(
       children: [
-        // Carte Sujet Communautaire d'Anglais (Ensemble entre membres)
+        // 1. Barre épinglée façon Telegram (Sujet du groupe + Voix réelle d'Amy)
         Container(
-          padding: const EdgeInsets.all(14),
+          margin: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+          padding: const EdgeInsets.all(11),
           decoration: BoxDecoration(
             color: YitteColors.emerald,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: YitteColors.gold, width: 1),
+            border: Border.all(color: YitteColors.gold.withValues(alpha: 0.7)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
+                  const Icon(Icons.push_pin_rounded,
+                      size: 13, color: YitteColors.gold),
+                  const SizedBox(width: 5),
                   const Expanded(
                     child: Text(
                       'PRATIQUER ENSEMBLE • CERCLE ANGLAIS',
                       style: TextStyle(
                         color: YitteColors.gold,
                         fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
                       ),
                     ),
                   ),
-                  if (isEditorOrAdmin)
-                    InkWell(
-                      onTap: () => _openEditCirclePromptDialog(context, eco),
-                      child: const Icon(
-                        Icons.edit_outlined,
-                        size: 17,
-                        color: YitteColors.gold,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                eco.englishCirclePrompt,
-                style: const TextStyle(
-                  fontFamily: YitteFonts.display,
-                  color: YitteColors.ivory,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: YitteColors.gold,
-                      foregroundColor: YitteColors.inkDark,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    onPressed: () => _speakFluid(eco.englishCirclePrompt),
-                    icon: const Icon(Icons.volume_up_rounded, size: 16),
-                    label: const Text('Écouter le sujet'),
-                  ),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: YitteColors.ivory,
-                      side: BorderSide(
-                        color: YitteColors.gold.withValues(alpha: 0.7),
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
+                  IconButton(
+                    tooltip: 'Partager le sujet sur WhatsApp',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    icon: const Icon(Icons.share_outlined,
+                        size: 16, color: YitteColors.ivory),
                     onPressed: () {
                       final formatted =
                           WhatsAppBridgeService.formatSingleMemberQuestion(
                         subjectTitle: 'Pratiquer l’Anglais Ensemble',
-                        contextLabel: 'English Club Communautaire • BOROOM YITTÉ',
+                        contextLabel: 'Groupe Anglais • BOROOM YITTÉ',
                         questionText: eco.englishCirclePrompt,
                       );
                       final url = WhatsAppBridgeService.buildShareUrl(
@@ -1525,332 +1815,657 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                       );
                       ExternalLinkBridge.openUrl(url);
                     },
-                    icon: const Icon(Icons.share_outlined, size: 15),
-                    label: const Text('Partager sur WhatsApp'),
+                  ),
+                  if (isEditorOrAdmin)
+                    IconButton(
+                      tooltip: 'Modifier le sujet épinglé',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 28, minHeight: 28),
+                      icon: const Icon(Icons.edit_outlined,
+                          size: 16, color: YitteColors.gold),
+                      onPressed: () => _openEditCirclePromptDialog(context, eco),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Text(
+                eco.englishCirclePrompt,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: YitteColors.ivory,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Mini-lecteur intégré de la voix réelle d'Amy
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: _toggleRealAmyIntroAudio,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.11),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _playingRealAmyIntro
+                            ? Icons.stop_circle_rounded
+                            : Icons.play_circle_fill_rounded,
+                        color: YitteColors.gold,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Voix réelle d’Amy — Exemple bilingue EN / FR',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: YitteColors.ivory,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const Text(
+                        '0:19',
+                        style: TextStyle(
+                          color: YitteColors.gold,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // 2. Fil de discussion social façon Telegram / WhatsApp
+        Expanded(
+          child: orderedPosts.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: YitteSurfaceCard(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.forum_outlined,
+                              size: 32, color: YitteColors.emerald),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Le groupe anglais est ouvert !',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Appuyez sur le micro en bas pour enregistrer un vocal (vous pourrez l’écouter ou le supprimer avant d’envoyer) ou écrivez en anglais pour pratiquer avec les autres membres.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  controller: _circleScrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                  itemCount: orderedPosts.length,
+                  itemBuilder: (context, index) {
+                    final post = orderedPosts[index];
+                    final isPlaying = _playingCircleAudioId == post.id;
+                    final isMine = _myLocalCirclePostIds.contains(post.id) ||
+                        (profile != null && post.authorId == profile.id) ||
+                        (profile == null && post.authorId == 'local_member');
+                    final canDelete = isMine || (profile?.role.isAdminOrAbove ?? false);
+                    final initials = post.authorName
+                        .trim()
+                        .split(RegExp(r'\s+'))
+                        .where((w) => w.isNotEmpty)
+                        .take(2)
+                        .map((w) => w[0].toUpperCase())
+                        .join();
+
+                    return Align(
+                      alignment:
+                          isMine ? Alignment.centerRight : Alignment.centerLeft,
+                      child: Container(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.86,
+                        ),
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isMine
+                              ? YitteColors.emerald.withValues(alpha: 0.10)
+                              : tokens.elevated,
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(14),
+                            topRight: const Radius.circular(14),
+                            bottomLeft: Radius.circular(isMine ? 14 : 4),
+                            bottomRight: Radius.circular(isMine ? 4 : 14),
+                          ),
+                          border: Border.all(
+                            color: isMine
+                                ? YitteColors.emerald.withValues(alpha: 0.35)
+                                : tokens.borderSubtle,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // En-tête bulle : Avatar + Nom + Niveau CEFR + Supprimer
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircleAvatar(
+                                  radius: 12,
+                                  backgroundColor: isMine
+                                      ? YitteColors.emerald
+                                      : YitteColors.gold,
+                                  child: Text(
+                                    initials.isEmpty ? 'M' : initials,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: isMine
+                                          ? YitteColors.ivory
+                                          : YitteColors.inkDark,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 7),
+                                Expanded(
+                                  child: Text(
+                                    post.authorName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                YitteStatusPill(label: post.cefrLevel),
+                                if (canDelete) ...[
+                                  const SizedBox(width: 4),
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: () => ref
+                                        .read(ecosystemProvider.notifier)
+                                        .deleteEnglishCirclePost(
+                                          post.id,
+                                          actor: profile,
+                                        ),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(3),
+                                      child: Icon(
+                                        Icons.delete_outline_rounded,
+                                        size: 16,
+                                        color: YitteColors.danger,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+
+                            // Lecteur vocal façon Telegram (onde + durée + bouton lecture)
+                            if (post.audioUrl != null &&
+                                post.audioUrl!.isNotEmpty) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: YitteColors.emerald
+                                      .withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    InkWell(
+                                      onTap: () {
+                                        if (isPlaying) {
+                                          SpeechBridge.stopAudioPlayback();
+                                          setState(() =>
+                                              _playingCircleAudioId = null);
+                                        } else {
+                                          setState(() {
+                                            _playingCircleAudioId = post.id;
+                                            _playingRealAmyIntro = false;
+                                          });
+                                          SpeechBridge.playAudioUrl(
+                                            post.audioUrl!,
+                                            onEnded: () {
+                                              if (mounted) {
+                                                setState(() =>
+                                                    _playingCircleAudioId =
+                                                        null);
+                                              }
+                                            },
+                                            onError: (_) {
+                                              if (mounted) {
+                                                setState(() =>
+                                                    _playingCircleAudioId =
+                                                        null);
+                                              }
+                                            },
+                                          );
+                                        }
+                                      },
+                                      child: CircleAvatar(
+                                        radius: 16,
+                                        backgroundColor: YitteColors.emerald,
+                                        child: Icon(
+                                          isPlaying
+                                              ? Icons.stop_rounded
+                                              : Icons.play_arrow_rounded,
+                                          size: 20,
+                                          color: YitteColors.gold,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceEvenly,
+                                        children: List.generate(
+                                          14,
+                                          (barIdx) => Container(
+                                            width: 3,
+                                            height: 6.0 +
+                                                ((barIdx * 7 + post.id.length) %
+                                                    14),
+                                            decoration: BoxDecoration(
+                                              color: isPlaying
+                                                  ? YitteColors.gold
+                                                  : YitteColors.emerald
+                                                      .withValues(alpha: 0.45),
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _formatCircleDuration(
+                                          post.audioDurationSeconds),
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: YitteColors.emerald,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+
+                            // Texte du message
+                            Text(
+                              post.englishText,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(height: 1.38),
+                            ),
+                            const SizedBox(height: 6),
+
+                            // Barre de réactions sociales rapides
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(14),
+                                  onTap: () => ref
+                                      .read(ecosystemProvider.notifier)
+                                      .encourageEnglishCirclePost(post.id),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: tokens.subtleFill,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Text(
+                                      '👏 ${post.encouragements}',
+                                      style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                ),
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(14),
+                                  onTap: () =>
+                                      setState(() => _replyingToPost = post),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: tokens.subtleFill,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: const Text(
+                                      '↩ Corriger / Mieux dire',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: YitteColors.emerald,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Corrections / réponses des membres en fil intégré
+                            if (post.feedbacks.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              ...post.feedbacks.map(
+                                (fb) => Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: tokens.goldSurface,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border(
+                                      left: BorderSide(
+                                        color: tokens.goldAccent,
+                                        width: 3,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${fb.authorName} • Mieux dire',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: tokens.goldAccent,
+                                        ),
+                                      ),
+                                      if (fb.suggestedCorrection != null)
+                                        Text(
+                                          fb.suggestedCorrection!,
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: YitteColors.emerald,
+                                          ),
+                                        )
+                                      else
+                                        Text(
+                                          fb.note,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+
+        // 3. Barre d'envoi collée en bas (façon Telegram : Vocal + Écouter/Supprimer avant envoi + Texte)
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          decoration: BoxDecoration(
+            color: tokens.elevated,
+            border: Border(top: BorderSide(color: tokens.borderSubtle)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Bandeau réponse/correction à un membre
+              if (_replyingToPost != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: tokens.goldSurface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border(
+                      left: BorderSide(color: tokens.goldAccent, width: 3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Mieux dire pour ${_replyingToPost!.authorName} : « ${_replyingToPost!.englishText} »',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => setState(() => _replyingToPost = null),
+                        child: const Icon(Icons.close_rounded, size: 17),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Bandeau enregistrement en cours (Annuler / Stop)
+              if (_circleRecording)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: YitteColors.danger.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: YitteColors.danger.withValues(alpha: 0.45)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.fiber_manual_record_rounded,
+                          color: YitteColors.danger, size: 16),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Enregistrement vocal • ${_formatCircleDuration(_circleLiveSec)}',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: YitteColors.danger,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: YitteColors.danger,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => _cancelCircleVoiceRecording(audio),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                        label: const Text('Annuler'),
+                      ),
+                      const SizedBox(width: 4),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: YitteColors.emerald,
+                          foregroundColor: YitteColors.ivory,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => _stopCircleVoiceRecording(audio),
+                        icon: const Icon(Icons.stop_rounded, size: 16),
+                        label: const Text('Stop'),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Bandeau pré-écoute du vocal AVANT envoi (Écouter / Supprimer si erreur)
+              if (!_circleRecording && _circleRecordedUrl != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: YitteColors.emerald.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: YitteColors.emerald.withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: _playingCirclePreview
+                            ? 'Arrêter'
+                            : 'Réécouter avant d’envoyer',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 30, minHeight: 30),
+                        icon: Icon(
+                          _playingCirclePreview
+                              ? Icons.stop_circle_rounded
+                              : Icons.play_circle_fill_rounded,
+                          color: YitteColors.emerald,
+                          size: 24,
+                        ),
+                        onPressed: () {
+                          if (_playingCirclePreview) {
+                            SpeechBridge.stopAudioPlayback();
+                            setState(() => _playingCirclePreview = false);
+                          } else {
+                            setState(() => _playingCirclePreview = true);
+                            SpeechBridge.playAudioUrl(
+                              _circleRecordedUrl!,
+                              onEnded: () {
+                                if (mounted) {
+                                  setState(() => _playingCirclePreview = false);
+                                }
+                              },
+                              onError: (_) {
+                                if (mounted) {
+                                  setState(() => _playingCirclePreview = false);
+                                }
+                              },
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Vocal prêt (${_formatCircleDuration(_circleRecordedSec)}) — écoutez ou supprimez avant d’envoyer',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: YitteColors.emerald,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Supprimer ce vocal',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 30, minHeight: 30),
+                        icon: const Icon(Icons.delete_outline_rounded,
+                            color: YitteColors.danger, size: 20),
+                        onPressed: () => _cancelCircleVoiceRecording(audio),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Ligne de saisie principale (Champ texte + Micro + Envoyer)
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _circleTextCtrl,
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) => _sendCircleMessage(audio, profile),
+                      decoration: InputDecoration(
+                        hintText: _replyingToPost != null
+                            ? 'Proposez une tournure plus naturelle…'
+                            : 'Écrire en anglais (ou envoyer un vocal)…',
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  if (!_circleRecording)
+                    Material(
+                      color: YitteColors.gold,
+                      shape: const CircleBorder(),
+                      child: IconButton(
+                        tooltip: 'Enregistrer un vocal',
+                        onPressed: () => _startCircleVoiceRecording(audio),
+                        icon: const Icon(
+                          Icons.mic_rounded,
+                          color: YitteColors.inkDark,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 6),
+                  Material(
+                    color: (hasDraftToSend || _circleRecording)
+                        ? YitteColors.emerald
+                        : tokens.subtleFill,
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      tooltip: 'Envoyer dans le groupe',
+                      onPressed: (hasDraftToSend || _circleRecording)
+                          ? () => _sendCircleMessage(audio, profile)
+                          : null,
+                      icon: Icon(
+                        Icons.send_rounded,
+                        color: (hasDraftToSend || _circleRecording)
+                            ? YitteColors.ivory
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                        size: 19,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
-
-        // Présentation vocale réelle d'Amy (enregistrée par la membre du cercle)
-        YitteSurfaceCard(
-          borderColor: tokens.borderAccent,
-          padding: const EdgeInsets.all(13),
-          child: Row(
-            children: [
-              Material(
-                color: YitteColors.emerald,
-                shape: const CircleBorder(),
-                child: IconButton(
-                  tooltip: _playingRealAmyIntro
-                      ? 'Arrêter l’audio'
-                      : 'Écouter la voix réelle d’Amy',
-                  onPressed: _toggleRealAmyIntroAudio,
-                  icon: Icon(
-                    _playingRealAmyIntro
-                        ? Icons.stop_rounded
-                        : Icons.play_arrow_rounded,
-                    color: YitteColors.gold,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Voix réelle d’Amy — Exemple bilingue EN / FR',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '« Hello, my name is Amy, I’m 20 years old… My goal is to become an aerospace engineer. »',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Enregistreur vocal natif fiable + Texte anglais pour participer avec le groupe
-        YitteSurfaceCard(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'PARTAGER VOTRE PRISE DE PAROLE EN ANGLAIS',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w700,
-                      color: tokens.goldAccent,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              ConsentVoiceRecorderCard(
-                audioService: audio,
-                prefix: 'english_circle',
-                consentGranted: _circleConsent,
-                speechLocale: _activeLocale,
-                onConsentChanged: (v) => setState(() => _circleConsent = v),
-                onLiveTranscript: (t) {
-                  if (t.trim().isNotEmpty) {
-                    setState(() => _circleTextCtrl.text = t);
-                  }
-                },
-                onRecorded: (url, sec) {
-                  setState(() {
-                    _circleRecordedUrl = url;
-                    _circleRecordedSec = sec;
-                  });
-                },
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _circleTextCtrl,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Votre texte ou transcription en anglais',
-                  hintText:
-                      'Ex : In 2026, I am building a daily habit of speaking English with the group…',
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    final txt = _circleTextCtrl.text.trim();
-                    if (txt.isEmpty && _circleRecordedUrl == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Enregistrez une note vocale ou écrivez quelques mots en anglais.',
-                          ),
-                        ),
-                      );
-                      return;
-                    }
-                    ref.read(ecosystemProvider.notifier).addEnglishCirclePost(
-                          authorId: profile?.id ?? 'guest',
-                          authorName: profile?.fullName ?? 'Membre du cercle',
-                          cefrLevel: _cefr,
-                          englishText: txt.isNotEmpty
-                              ? txt
-                              : 'Note vocale en anglais (${_circleRecordedSec}s)',
-                          audioUrl: _circleRecordedUrl,
-                          audioDurationSeconds: _circleRecordedSec,
-                        );
-                    setState(() {
-                      _circleTextCtrl.clear();
-                      _circleRecordedUrl = null;
-                      _circleRecordedSec = 0;
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Prise de parole publiée dans le cercle anglais !'),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.send_rounded, size: 17),
-                  label: const Text('Publier pour le groupe'),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        Text(
-          'ÉCHANGES DES MEMBRES (${eco.englishCirclePosts.length})',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                letterSpacing: 1.2,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
-
-        if (eco.englishCirclePosts.isEmpty)
-          YitteSurfaceCard(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'Soyez le premier membre à enregistrer ou écrire votre réponse en anglais sur le sujet ci-dessus ! Les autres membres pourront vous écouter, vous encourager et proposer des tournures plus naturelles.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          )
-        else
-          ...eco.englishCirclePosts.map((post) {
-            final isPlaying = _playingCircleAudioId == post.id;
-            final canDelete = profile != null &&
-                (profile.role.isAdminOrAbove || post.authorId == profile.id);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: YitteSurfaceCard(
-                padding: const EdgeInsets.all(13),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            post.authorName,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                        ),
-                        YitteStatusPill(label: post.cefrLevel),
-                        if (canDelete) ...[
-                          const SizedBox(width: 4),
-                          IconButton(
-                            tooltip: 'Supprimer ma publication',
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            icon: const Icon(
-                              Icons.delete_outline_rounded,
-                              size: 18,
-                              color: YitteColors.danger,
-                            ),
-                            onPressed: () => ref
-                                .read(ecosystemProvider.notifier)
-                                .deleteEnglishCirclePost(post.id,
-                                    actor: profile),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    if (post.audioUrl != null && post.audioUrl!.isNotEmpty) ...[
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          if (isPlaying) {
-                            SpeechBridge.stopAudioPlayback();
-                            setState(() => _playingCircleAudioId = null);
-                          } else {
-                            setState(() {
-                              _playingCircleAudioId = post.id;
-                              _playingRealAmyIntro = false;
-                            });
-                            SpeechBridge.playAudioUrl(
-                              post.audioUrl!,
-                              onEnded: () {
-                                if (mounted) {
-                                  setState(() => _playingCircleAudioId = null);
-                                }
-                              },
-                              onError: (_) {
-                                if (mounted) {
-                                  setState(() => _playingCircleAudioId = null);
-                                }
-                              },
-                            );
-                          }
-                        },
-                        icon: Icon(
-                          isPlaying
-                              ? Icons.stop_circle_outlined
-                              : Icons.play_circle_outline_rounded,
-                          size: 18,
-                          color: YitteColors.emerald,
-                        ),
-                        label: Text(
-                          isPlaying
-                              ? 'Arrêter la note vocale'
-                              : 'Écouter la voix (${post.audioDurationSeconds}s)',
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                    ],
-                    Text(
-                      post.englishText,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        TextButton.icon(
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          onPressed: () => ref
-                              .read(ecosystemProvider.notifier)
-                              .encourageEnglishCirclePost(post.id),
-                          icon: const Icon(Icons.thumb_up_alt_outlined, size: 15),
-                          label: Text('Bravo (${post.encouragements})'),
-                        ),
-                        TextButton.icon(
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          onPressed: () =>
-                              _openPeerFeedbackDialog(context, post, profile),
-                          icon: const Icon(Icons.auto_fix_high_outlined, size: 15),
-                          label: const Text('Aider / Mieux dire'),
-                        ),
-                      ],
-                    ),
-                    if (post.feedbacks.isNotEmpty) ...[
-                      const Divider(height: 12),
-                      ...post.feedbacks.map(
-                        (fb) => Container(
-                          width: double.infinity,
-                          margin: const EdgeInsets.only(bottom: 6),
-                          padding: const EdgeInsets.all(9),
-                          decoration: BoxDecoration(
-                            color: tokens.goldSurface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: tokens.borderAccent),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                fb.authorName,
-                                style: const TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              Text(
-                                fb.note,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              if (fb.suggestedCorrection != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 3),
-                                  child: Text(
-                                    'Mieux dire : "${fb.suggestedCorrection}"',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: YitteColors.emerald,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            );
-          }),
       ],
     );
   }
@@ -1885,64 +2500,6 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
               Navigator.pop(ctx);
             },
             child: const Text('Mettre à jour'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openPeerFeedbackDialog(
-    BuildContext context,
-    EnglishCirclePostModel post,
-    UserProfile? profile,
-  ) async {
-    final noteCtrl = TextEditingController();
-    final fixCtrl = TextEditingController();
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Conseiller ${post.authorName}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: noteCtrl,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Encouragement ou remarque',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: fixCtrl,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Formulation plus naturelle (optionnel)',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (noteCtrl.text.trim().isEmpty && fixCtrl.text.trim().isEmpty) {
-                return;
-              }
-              ref.read(ecosystemProvider.notifier).addEnglishCircleFeedback(
-                    postId: post.id,
-                    authorName: profile?.fullName ?? 'Membre du cercle',
-                    note: noteCtrl.text.trim().isNotEmpty
-                        ? noteCtrl.text.trim()
-                        : 'Suggestion d’amélioration :',
-                    suggestedCorrection: fixCtrl.text.trim(),
-                  );
-              Navigator.pop(ctx);
-            },
-            child: const Text('Envoyer'),
           ),
         ],
       ),

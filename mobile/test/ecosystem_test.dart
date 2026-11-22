@@ -258,6 +258,9 @@ void main() {
     expect(find.text('Café & Rencontre'), findsOneWidget);
     expect(find.textContaining('Welcome'), findsWidgets);
 
+    expect(find.text('EN'), findsWidgets);
+    expect(find.text('FR'), findsWidgets);
+
     await tester.enterText(
       find.byType(TextField).first,
       'Despite of the rain, I buyed a coffee this morning.',
@@ -265,6 +268,11 @@ void main() {
     await tester.tap(find.byTooltip('Envoyer'));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.text('MIEUX DIRE'),
+      -180,
+      scrollable: find.byType(Scrollable).at(1),
+    );
     expect(find.text('MIEUX DIRE'), findsOneWidget);
     expect(find.textContaining('Progression'), findsOneWidget);
   });

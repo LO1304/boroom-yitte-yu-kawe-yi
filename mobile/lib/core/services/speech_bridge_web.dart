@@ -757,6 +757,8 @@ class SpeechBridge {
     bool preferFemale = false,
     String? voiceProfile,
     String? bundledAssetPath,
+    bool strictRealVoiceOnly = false,
+    String? voiceServerBaseUrl,
     void Function(bool isSpeaking)? onSpeakingChanged,
     void Function(int wordIndex)? onWordIndex,
     void Function(String engine)? onEngineUsed,
@@ -772,6 +774,40 @@ class SpeechBridge {
     final assetUrl = (bundledAssetPath != null && bundledAssetPath.isNotEmpty)
         ? 'assets/$bundledAssetPath'
         : null;
+
+    final customBase = (voiceServerBaseUrl ?? '').trim().replaceAll(RegExp(r'/+$'), '');
+    final hasCloneBackend = customBase.isNotEmpty || _canUseLocalNeuralApi;
+
+    if (strictRealVoiceOnly) {
+      if (!hasCloneBackend) {
+        onEngineUsed?.call('clone-required');
+        onSpeakingChanged?.call(false);
+        return;
+      }
+      final resolvedVoice = voiceProfile ??
+          (locale.toLowerCase().startsWith('en-gb')
+              ? 'amy-soft-uk'
+              : 'amy-fluent-us');
+      final prefix = customBase.isNotEmpty ? customBase : '';
+      final ttsUrl =
+          '$prefix/api/tts?strictClone=1&text=${Uri.encodeQueryComponent(clean)}&voice=${Uri.encodeQueryComponent(resolvedVoice)}&locale=${Uri.encodeQueryComponent(locale)}&rate=${rate.toStringAsFixed(2)}';
+      _playNeuralAudioUrl(
+        url: ttsUrl,
+        fullText: clean,
+        playbackRate: 1.0,
+        token: token,
+        engineLabel: 'Voix réelle clonée d’Amy',
+        fallbackAssetUrl: assetUrl,
+        onFallbackWebSpeech: () {
+          onEngineUsed?.call('clone-required');
+          onSpeakingChanged?.call(false);
+        },
+        onSpeakingChanged: onSpeakingChanged,
+        onWordIndex: onWordIndex,
+        onEngineUsed: onEngineUsed,
+      );
+      return;
+    }
 
     void fallbackWebSpeech() => _speakWithNaturalWebSpeech(
           text: clean,

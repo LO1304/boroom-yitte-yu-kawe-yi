@@ -367,7 +367,75 @@ function resolveNeuralVoice(voiceKey, locale) {
   return 'en-US-AvaMultilingualNeural';
 }
 
-async function synthesizeNeuralTts({ text, voiceKey, locale, rate, env }) {
+const AMY_REAL_SAMPLE_FILE = path.resolve(
+  ROOT,
+  'mobile',
+  'assets',
+  'audio',
+  'amy',
+  'amy_real_intro.ogg',
+);
+const AMY_CLONE_META_FILE = path.join(DATA_DIR, 'amy_cloned_voice.json');
+
+function readAmyCloneMeta() {
+  try {
+    if (!fs.existsSync(AMY_CLONE_META_FILE)) return {};
+    return JSON.parse(fs.readFileSync(AMY_CLONE_META_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeAmyCloneMeta(meta) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(AMY_CLONE_META_FILE, JSON.stringify(meta, null, 2), 'utf8');
+}
+
+async function ensureElevenLabsAmyVoiceId(env) {
+  const explicit = (env.ELEVENLABS_VOICE_ID || '').trim();
+  if (explicit) return explicit;
+  const cached = readAmyCloneMeta();
+  if (cached.elevenlabsVoiceId) return cached.elevenlabsVoiceId;
+  if (!env.ELEVENLABS_API_KEY || !env.ELEVENLABS_API_KEY.trim()) return null;
+  if (!fs.existsSync(AMY_REAL_SAMPLE_FILE)) return null;
+
+  const sampleBuf = fs.readFileSync(AMY_REAL_SAMPLE_FILE);
+  const form = new FormData();
+  form.append('name', 'Amy BOROOM YITTE');
+  form.append('description', 'Voix réelle clonée d’Amy pour BOROOM YITTÉ YU KAWÉ YI');
+  form.append(
+    'files',
+    new Blob([sampleBuf], { type: 'audio/ogg' }),
+    'amy_real_intro.ogg',
+  );
+  const res = await fetch('https://api.elevenlabs.io/v1/voices/add', {
+    method: 'POST',
+    headers: { 'xi-api-key': env.ELEVENLABS_API_KEY.trim() },
+    body: form,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`ElevenLabs clone error (${res.status}): ${errText.slice(0, 180)}`);
+  }
+  const json = await res.json();
+  const voiceId = String(json?.voice_id || '').trim();
+  if (!voiceId) throw new Error('ElevenLabs voice_id non retourné.');
+  writeAmyCloneMeta({
+    ...cached,
+    elevenlabsVoiceId: voiceId,
+    clonedAt: new Date().toISOString(),
+  });
+  return voiceId;
+}
+
+async function synthesizeNeuralTts({
+  text,
+  voiceKey,
+  locale,
+  rate,
+  env,
+  strictClone = false,
+}) {
   const cleanText = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 900);
   if (!cleanText) throw new Error('Texte vide pour la synthèse vocale.');
 
@@ -377,9 +445,15 @@ async function synthesizeNeuralTts({ text, voiceKey, locale, rate, env }) {
   const neuralVoice = resolveNeuralVoice(voiceKey, locale);
 
   fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
-  const providerTag =
-    env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID
-      ? `el_${env.ELEVENLABS_VOICE_ID}`
+
+  const hasEleven = Boolean(env.ELEVENLABS_API_KEY && env.ELEVENLABS_API_KEY.trim());
+  const hasFish = Boolean(env.FISH_API_KEY && env.FISH_API_KEY.trim());
+  const clonedVoiceId = hasEleven ? await ensureElevenLabsAmyVoiceId(env).catch(() => null) : null;
+
+  const providerTag = clonedVoiceId
+    ? `el_amy_${clonedVoiceId}`
+    : hasFish
+      ? 'fish_amy_clone'
       : env.OPENAI_API_KEY
         ? 'oai_shimmer'
         : `edge_${neuralVoice}`;
@@ -394,10 +468,10 @@ async function synthesizeNeuralTts({ text, voiceKey, locale, rate, env }) {
     return { filePath: cacheFile, engine: `${providerTag}:cached` };
   }
 
-  // Tier 1: ElevenLabs Cloned Voice if configured in .env
-  if (env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID) {
+  // Tier 1A: ElevenLabs Cloned Voice (auto-cloné depuis amy_real_intro.ogg)
+  if (hasEleven && clonedVoiceId) {
     const elRes = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(env.ELEVENLABS_VOICE_ID.trim())}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(clonedVoiceId)}`,
       {
         method: 'POST',
         headers: {
@@ -408,15 +482,50 @@ async function synthesizeNeuralTts({ text, voiceKey, locale, rate, env }) {
         body: JSON.stringify({
           text: cleanText,
           model_id: 'eleven_multilingual_v2',
-          voice_settings: { stability: 0.55, similarity_boost: 0.82, style: 0.25 },
+          voice_settings: { stability: 0.52, similarity_boost: 0.88, style: 0.25 },
         }),
       },
     );
     if (elRes.ok) {
       const buf = Buffer.from(await elRes.arrayBuffer());
       fs.writeFileSync(cacheFile, buf);
-      return { filePath: cacheFile, engine: 'elevenlabs-clone' };
+      return { filePath: cacheFile, engine: 'elevenlabs-amy-clone' };
     }
+  }
+
+  // Tier 1B: Fish Audio Zero-Shot Clone directement depuis amy_real_intro.ogg
+  if (hasFish && fs.existsSync(AMY_REAL_SAMPLE_FILE)) {
+    const sampleB64 = fs.readFileSync(AMY_REAL_SAMPLE_FILE).toString('base64');
+    const fishRes = await fetch('https://api.fish.audio/v1/tts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.FISH_API_KEY.trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: cleanText,
+        format: 'mp3',
+        references: [
+          {
+            audio: sampleB64,
+            text: "Hello, my name is Amy. I'm twenty years old and I live in Villejuif.",
+          },
+        ],
+      }),
+    });
+    if (fishRes.ok) {
+      const buf = Buffer.from(await fishRes.arrayBuffer());
+      fs.writeFileSync(cacheFile, buf);
+      return { filePath: cacheFile, engine: 'fish-amy-clone' };
+    }
+  }
+
+  if (strictClone) {
+    const err = new Error(
+      'CLONE_NOT_CONFIGURED: Ajoutez ELEVENLABS_API_KEY ou FISH_API_KEY dans .env pour cloner automatiquement amy_real_intro.ogg.',
+    );
+    err.statusCode = 503;
+    throw err;
   }
 
   // Tier 2: OpenAI HD Female Neural Voice if configured in .env
@@ -1016,6 +1125,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (cleanPath === '/api/voice/amy-status' && req.method === 'GET') {
+    const env = loadDotEnv();
+    const meta = readAmyCloneMeta();
+    const hasEleven = Boolean(env.ELEVENLABS_API_KEY && env.ELEVENLABS_API_KEY.trim());
+    const hasFish = Boolean(env.FISH_API_KEY && env.FISH_API_KEY.trim());
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        sampleExists: fs.existsSync(AMY_REAL_SAMPLE_FILE),
+        clonedReady: hasEleven || hasFish,
+        provider: hasEleven ? 'elevenlabs' : hasFish ? 'fish_audio' : 'none',
+        voiceId: (env.ELEVENLABS_VOICE_ID || meta.elevenlabsVoiceId || '').trim() || null,
+      }),
+    );
+    return;
+  }
+
   if (cleanPath === '/api/tts' && (req.method === 'GET' || req.method === 'POST')) {
     try {
       const body = req.method === 'POST' ? await readJsonBody(req) : {};
@@ -1031,6 +1158,9 @@ const server = http.createServer(async (req, res) => {
       const rate = req.method === 'POST'
         ? body.rate
         : urlObj.searchParams.get('rate');
+      const strictClone = req.method === 'POST'
+        ? Boolean(body.strictClone)
+        : urlObj.searchParams.get('strictClone') === '1';
 
       const env = loadDotEnv();
       const { filePath, engine } = await synthesizeNeuralTts({
@@ -1039,6 +1169,7 @@ const server = http.createServer(async (req, res) => {
         locale,
         rate,
         env,
+        strictClone,
       });
       const stat = fs.statSync(filePath);
       res.writeHead(200, {
@@ -1049,7 +1180,8 @@ const server = http.createServer(async (req, res) => {
       });
       fs.createReadStream(filePath).pipe(res);
     } catch (e) {
-      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+      const status = Number(e?.statusCode) || 502;
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ ok: false, error: String(e) }));
     }
     return;
