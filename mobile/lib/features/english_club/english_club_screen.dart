@@ -41,7 +41,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   String _voiceProfile = 'amy-soft-uk'; // amy-soft-uk (UK) | amy-fluent-us (US)
   double _speechRate = 0.96; // 0.96 (Fluide) | 0.78 (Lent)
   final bool _strictRealAmyVoice = true;
-  bool _cloneSetupNeeded = false;
+  bool _amyVoiceCloning = false;
   String _amyVoiceServerUrl = '';
 
   // Espace communautaire "Pratiquer l'anglais ensemble" (façon Telegram / WhatsApp)
@@ -314,12 +314,15 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       voiceServerBaseUrl: _amyVoiceServerUrl,
       onEngineUsed: (engine) {
         if (!mounted) return;
-        setState(() => _cloneSetupNeeded = engine == 'clone-required');
+        setState(() {
+          _amyVoiceCloning = engine == 'chatterbox-cloning';
+        });
       },
       onSpeakingChanged: (speaking) {
         if (!mounted) return;
         setState(() {
           _amySpeaking = speaking;
+          if (speaking) _amyVoiceCloning = false;
           if (!speaking) {
             _speakingMsgIdx = null;
             _speakingWordIdx = -1;
@@ -846,53 +849,15 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     size: 20,
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Voix réelle clonée d’Amy',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-                  onPressed: () => _openVoiceCloneConfigDialog(context),
-                  icon: const Icon(
-                    Icons.graphic_eq_rounded,
-                    color: YitteColors.ivory,
-                    size: 18,
-                  ),
-                ),
               ],
             ),
           ),
         ),
-        if (_cloneSetupNeeded)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-              decoration: BoxDecoration(
-                color: tokens.goldSurface,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: tokens.borderAccent),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.record_voice_over_outlined,
-                      size: 16, color: tokens.goldAccent),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Mode voix réelle d’Amy uniquement (aucune voix robotique). Activez le clonage pour l’entendre sur vos questions.',
-                      style: TextStyle(fontSize: 11.5, height: 1.3),
-                    ),
-                  ),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                    onPressed: () => _openVoiceCloneConfigDialog(context),
-                    child: const Text('Activer'),
-                  ),
-                ],
-              ),
+        if (_amyVoiceCloning)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: YitteLoadingBanner(
+              message: 'Amy prépare sa voix…',
             ),
           ),
         const SizedBox(height: 8),
@@ -1541,78 +1506,6 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
           "Hello, my name is Amy. I'm twenty years old and I live in Villejuif. My goal is to become an aerospace engineer.",
         );
       },
-    );
-  }
-
-  Future<void> _openVoiceCloneConfigDialog(BuildContext context) async {
-    final urlCtrl = TextEditingController(text: _amyVoiceServerUrl);
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Voix réelle clonée d’Amy'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'La voix robotique du navigateur est désactivée. L’échantillon réel d’Amy (amy_real_intro.ogg) est déjà intégré dans le projet.',
-                style: TextStyle(fontSize: 13, height: 1.4),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: _toggleRealAmyIntroAudio,
-                icon: Icon(
-                  _playingRealAmyIntro
-                      ? Icons.stop_rounded
-                      : Icons.play_arrow_rounded,
-                ),
-                label: Text(
-                  _playingRealAmyIntro
-                      ? 'Arrêter l’échantillon réel'
-                      : 'Écouter la vraie voix d’Amy',
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Pour cloner sa voix sur TOUTES vos questions en direct :\n'
-                '1. Ajoutez ELEVENLABS_API_KEY=... ou FISH_API_KEY=... dans le fichier .env du serveur.\n'
-                '2. Le serveur clone automatiquement amy_real_intro.ogg dès la première phrase.\n'
-                '3. Sur GitHub Pages, indiquez ci-dessous l’URL de votre serveur vocal (laissez vide en local) :',
-                style: TextStyle(fontSize: 12, height: 1.45),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: urlCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'URL du serveur vocal (optionnel)',
-                  hintText: 'Ex : http://127.0.0.1:8080',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Fermer'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final next = urlCtrl.text.trim();
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString(_amyVoiceServerPrefKey, next);
-              if (!mounted) return;
-              setState(() {
-                _amyVoiceServerUrl = next;
-                _cloneSetupNeeded = false;
-              });
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
     );
   }
 

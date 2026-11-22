@@ -428,6 +428,90 @@ async function ensureElevenLabsAmyVoiceId(env) {
   return voiceId;
 }
 
+let cachedChatterboxSamplePath = null;
+
+async function ensureChatterboxAmySamplePath() {
+  if (cachedChatterboxSamplePath) return cachedChatterboxSamplePath;
+  if (!fs.existsSync(AMY_REAL_SAMPLE_FILE)) return null;
+  const base = 'https://resembleai-chatterbox.hf.space';
+  const buf = fs.readFileSync(AMY_REAL_SAMPLE_FILE);
+  const form = new FormData();
+  form.append(
+    'files',
+    new Blob([buf], { type: 'audio/ogg' }),
+    'amy_real_intro.ogg',
+  );
+  const upRes = await fetch(`${base}/gradio_api/upload`, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!upRes.ok) throw new Error(`Chatterbox upload failed (${upRes.status})`);
+  const upJson = await upRes.json();
+  const remotePath = Array.isArray(upJson) ? upJson[0] : null;
+  if (!remotePath) throw new Error('Chatterbox upload path missing');
+  cachedChatterboxSamplePath = remotePath;
+  return remotePath;
+}
+
+async function synthesizeChatterboxFreeClone(text, cacheFile) {
+  const base = 'https://resembleai-chatterbox.hf.space';
+  const snippet = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 290);
+  if (!snippet) throw new Error('Empty text');
+
+  let samplePath = await ensureChatterboxAmySamplePath();
+  if (!samplePath) throw new Error('amy_real_intro.ogg introuvable');
+
+  const invoke = async (remotePath) => {
+    const callRes = await fetch(`${base}/gradio_api/call/generate_tts_audio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data: [
+          snippet,
+          { path: remotePath, meta: { _type: 'gradio.FileData' } },
+          0.5,
+          0.75,
+          0,
+          0.5,
+          false,
+        ],
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!callRes.ok) throw new Error(`Chatterbox call failed (${callRes.status})`);
+    const { event_id: eventId } = await callRes.json();
+    if (!eventId) throw new Error('Chatterbox event_id missing');
+    const sseRes = await fetch(
+      `${base}/gradio_api/call/generate_tts_audio/${encodeURIComponent(eventId)}`,
+      { signal: AbortSignal.timeout(60000) },
+    );
+    if (!sseRes.ok) throw new Error(`Chatterbox SSE failed (${sseRes.status})`);
+    const sseText = await sseRes.text();
+    const lines = sseText.split(/\r?\n/);
+    const dataLine = [...lines].reverse().find((l) => l.startsWith('data:'));
+    if (!dataLine) throw new Error('Chatterbox SSE data missing');
+    const parsed = JSON.parse(dataLine.slice(5).trim());
+    const audioUrl = parsed?.[0]?.url;
+    if (!audioUrl) throw new Error('Chatterbox output audio URL missing');
+    const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(25000) });
+    if (!audioRes.ok) throw new Error(`Chatterbox audio download failed (${audioRes.status})`);
+    return Buffer.from(await audioRes.arrayBuffer());
+  };
+
+  let audioBuf;
+  try {
+    audioBuf = await invoke(samplePath);
+  } catch {
+    // Re-upload sample once in case Space restarted /tmp
+    cachedChatterboxSamplePath = null;
+    samplePath = await ensureChatterboxAmySamplePath();
+    audioBuf = await invoke(samplePath);
+  }
+  fs.writeFileSync(cacheFile, audioBuf);
+  return { filePath: cacheFile, engine: 'chatterbox-free-amy-clone', mime: 'audio/wav' };
+}
+
 async function synthesizeNeuralTts({
   text,
   voiceKey,
@@ -448,24 +532,32 @@ async function synthesizeNeuralTts({
 
   const hasEleven = Boolean(env.ELEVENLABS_API_KEY && env.ELEVENLABS_API_KEY.trim());
   const hasFish = Boolean(env.FISH_API_KEY && env.FISH_API_KEY.trim());
+  const hasAmySample = fs.existsSync(AMY_REAL_SAMPLE_FILE);
   const clonedVoiceId = hasEleven ? await ensureElevenLabsAmyVoiceId(env).catch(() => null) : null;
 
   const providerTag = clonedVoiceId
     ? `el_amy_${clonedVoiceId}`
     : hasFish
       ? 'fish_amy_clone'
-      : env.OPENAI_API_KEY
-        ? 'oai_shimmer'
-        : `edge_${neuralVoice}`;
+      : hasAmySample
+        ? 'chatterbox_amy_free'
+        : env.OPENAI_API_KEY
+          ? 'oai_shimmer'
+          : `edge_${neuralVoice}`;
+  const isWavProvider = providerTag === 'chatterbox_amy_free';
   const hash = crypto
     .createHash('sha256')
     .update(`${providerTag}|${rateArg}|${cleanText}`)
     .digest('hex')
     .slice(0, 24);
-  const cacheFile = path.join(TTS_CACHE_DIR, `${hash}.mp3`);
+  const cacheFile = path.join(TTS_CACHE_DIR, `${hash}.${isWavProvider ? 'wav' : 'mp3'}`);
 
   if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 256) {
-    return { filePath: cacheFile, engine: `${providerTag}:cached` };
+    return {
+      filePath: cacheFile,
+      engine: `${providerTag}:cached`,
+      mime: isWavProvider ? 'audio/wav' : 'audio/mpeg',
+    };
   }
 
   // Tier 1A: ElevenLabs Cloned Voice (auto-cloné depuis amy_real_intro.ogg)
@@ -489,12 +581,12 @@ async function synthesizeNeuralTts({
     if (elRes.ok) {
       const buf = Buffer.from(await elRes.arrayBuffer());
       fs.writeFileSync(cacheFile, buf);
-      return { filePath: cacheFile, engine: 'elevenlabs-amy-clone' };
+      return { filePath: cacheFile, engine: 'elevenlabs-amy-clone', mime: 'audio/mpeg' };
     }
   }
 
   // Tier 1B: Fish Audio Zero-Shot Clone directement depuis amy_real_intro.ogg
-  if (hasFish && fs.existsSync(AMY_REAL_SAMPLE_FILE)) {
+  if (hasFish && hasAmySample) {
     const sampleB64 = fs.readFileSync(AMY_REAL_SAMPLE_FILE).toString('base64');
     const fishRes = await fetch('https://api.fish.audio/v1/tts', {
       method: 'POST',
@@ -516,13 +608,26 @@ async function synthesizeNeuralTts({
     if (fishRes.ok) {
       const buf = Buffer.from(await fishRes.arrayBuffer());
       fs.writeFileSync(cacheFile, buf);
-      return { filePath: cacheFile, engine: 'fish-amy-clone' };
+      return { filePath: cacheFile, engine: 'fish-amy-clone', mime: 'audio/mpeg' };
+    }
+  }
+
+  // Tier 1C (100% GRATUIT, zéro clé API) : ResembleAI Chatterbox Zero-Shot Clone depuis amy_real_intro.ogg
+  if (hasAmySample) {
+    try {
+      return await synthesizeChatterboxFreeClone(cleanText, cacheFile);
+    } catch (e) {
+      if (strictClone) {
+        const err = new Error(`Chatterbox free clone indisponible temporairement : ${e.message}`);
+        err.statusCode = 503;
+        throw err;
+      }
     }
   }
 
   if (strictClone) {
     const err = new Error(
-      'CLONE_NOT_CONFIGURED: Ajoutez ELEVENLABS_API_KEY ou FISH_API_KEY dans .env pour cloner automatiquement amy_real_intro.ogg.',
+      'CLONE_NOT_CONFIGURED: Échantillon amy_real_intro.ogg introuvable.',
     );
     err.statusCode = 503;
     throw err;
@@ -1130,13 +1235,20 @@ const server = http.createServer(async (req, res) => {
     const meta = readAmyCloneMeta();
     const hasEleven = Boolean(env.ELEVENLABS_API_KEY && env.ELEVENLABS_API_KEY.trim());
     const hasFish = Boolean(env.FISH_API_KEY && env.FISH_API_KEY.trim());
+    const sampleExists = fs.existsSync(AMY_REAL_SAMPLE_FILE);
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(
       JSON.stringify({
         ok: true,
-        sampleExists: fs.existsSync(AMY_REAL_SAMPLE_FILE),
-        clonedReady: hasEleven || hasFish,
-        provider: hasEleven ? 'elevenlabs' : hasFish ? 'fish_audio' : 'none',
+        sampleExists,
+        clonedReady: hasEleven || hasFish || sampleExists,
+        provider: hasEleven
+          ? 'elevenlabs'
+          : hasFish
+            ? 'fish_audio'
+            : sampleExists
+              ? 'chatterbox_free'
+              : 'none',
         voiceId: (env.ELEVENLABS_VOICE_ID || meta.elevenlabsVoiceId || '').trim() || null,
       }),
     );
@@ -1163,7 +1275,7 @@ const server = http.createServer(async (req, res) => {
         : urlObj.searchParams.get('strictClone') === '1';
 
       const env = loadDotEnv();
-      const { filePath, engine } = await synthesizeNeuralTts({
+      const { filePath, engine, mime } = await synthesizeNeuralTts({
         text,
         voiceKey,
         locale,
@@ -1173,7 +1285,7 @@ const server = http.createServer(async (req, res) => {
       });
       const stat = fs.statSync(filePath);
       res.writeHead(200, {
-        'Content-Type': 'audio/mpeg',
+        'Content-Type': mime || 'audio/mpeg',
         'Content-Length': stat.size,
         'Cache-Control': 'public, max-age=86400',
         'X-TTS-Engine': engine,

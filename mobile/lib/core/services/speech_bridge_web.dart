@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
@@ -36,6 +37,9 @@ class SpeechBridge {
   static int _speakToken = 0;
   static void Function(bool isSpeaking)? _activeSpeakingCb;
   static void Function(int wordIndex)? _activeWordCb;
+  static String? _chatterboxSamplePath;
+  static final Map<String, String> _chatterboxAudioCache = {};
+  static const _chatterboxBase = 'https://resembleai-chatterbox.hf.space';
 
   static bool get isTtsSupported {
     try {
@@ -750,6 +754,183 @@ class SpeechBridge {
     playChunkAt(0);
   }
 
+  static Future<String?> _ensureChatterboxSamplePath() async {
+    if (_chatterboxSamplePath != null && _chatterboxSamplePath!.isNotEmpty) {
+      return _chatterboxSamplePath;
+    }
+    try {
+      // Charge la vraie voix d'Amy directement depuis les assets intégrés
+      final assetResAny = await (_window.callMethod(
+        'fetch'.toJS,
+        'assets/assets/audio/amy/amy_real_intro.ogg'.toJS,
+      ) as JSPromise)
+          .toDart;
+      if (assetResAny == null || !assetResAny.isA<JSObject>()) return null;
+      final assetRes = assetResAny as JSObject;
+      final okAny = assetRes['ok'];
+      if (okAny == null || !okAny.isA<JSBoolean>() || !(okAny as JSBoolean).toDart) {
+        return null;
+      }
+      final blobAny = await (assetRes.callMethod('blob'.toJS) as JSPromise).toDart;
+      if (blobAny == null) return null;
+
+      final formDataCtor = _window['FormData'];
+      if (formDataCtor == null || !formDataCtor.isA<JSFunction>()) return null;
+      final form = (formDataCtor as JSFunction).callAsConstructor<JSObject>();
+      form.callMethod(
+        'append'.toJS,
+        'files'.toJS,
+        blobAny,
+        'amy_real_intro.ogg'.toJS,
+      );
+
+      final opts = <String, Object?>{
+        'method': 'POST',
+        'body': form,
+      }.jsify();
+      final upResAny = await (_window.callMethod(
+        'fetch'.toJS,
+        '$_chatterboxBase/gradio_api/upload'.toJS,
+        opts,
+      ) as JSPromise)
+          .toDart;
+      if (upResAny == null || !upResAny.isA<JSObject>()) return null;
+      final upTextAny =
+          await ((upResAny as JSObject).callMethod('text'.toJS) as JSPromise)
+              .toDart;
+      if (upTextAny == null || !upTextAny.isA<JSString>()) return null;
+      final decoded = jsonDecode((upTextAny as JSString).toDart);
+      if (decoded is List && decoded.isNotEmpty && decoded.first is String) {
+        _chatterboxSamplePath = decoded.first as String;
+        return _chatterboxSamplePath;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<String?> _requestChatterboxCloneUrl(String text) async {
+    final snippet = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (snippet.isEmpty) return null;
+    final clipped = snippet.length > 290 ? snippet.substring(0, 290) : snippet;
+    final cached = _chatterboxAudioCache[clipped];
+    if (cached != null) return cached;
+
+    Future<String?> runWith(String remotePath) async {
+      final payload = jsonEncode({
+        'data': [
+          clipped,
+          {
+            'path': remotePath,
+            'meta': {'_type': 'gradio.FileData'},
+          },
+          0.5,
+          0.75,
+          0,
+          0.5,
+          false,
+        ],
+      });
+      final callOpts = <String, Object?>{
+        'method': 'POST',
+        'headers': {'Content-Type': 'application/json'},
+        'body': payload,
+      }.jsify();
+      final callResAny = await (_window.callMethod(
+        'fetch'.toJS,
+        '$_chatterboxBase/gradio_api/call/generate_tts_audio'.toJS,
+        callOpts,
+      ) as JSPromise)
+          .toDart;
+      if (callResAny == null || !callResAny.isA<JSObject>()) return null;
+      final callTextAny =
+          await ((callResAny as JSObject).callMethod('text'.toJS) as JSPromise)
+              .toDart;
+      if (callTextAny == null || !callTextAny.isA<JSString>()) return null;
+      final callJson = jsonDecode((callTextAny as JSString).toDart);
+      final eventId =
+          callJson is Map ? callJson['event_id']?.toString() : null;
+      if (eventId == null || eventId.isEmpty) return null;
+
+      final sseResAny = await (_window.callMethod(
+        'fetch'.toJS,
+        '$_chatterboxBase/gradio_api/call/generate_tts_audio/${Uri.encodeComponent(eventId)}'
+            .toJS,
+      ) as JSPromise)
+          .toDart;
+      if (sseResAny == null || !sseResAny.isA<JSObject>()) return null;
+      final sseTextAny =
+          await ((sseResAny as JSObject).callMethod('text'.toJS) as JSPromise)
+              .toDart;
+      if (sseTextAny == null || !sseTextAny.isA<JSString>()) return null;
+      final sseText = (sseTextAny as JSString).toDart;
+      String? dataLine;
+      for (final line in sseText.split(RegExp(r'\r?\n'))) {
+        if (line.startsWith('data:')) dataLine = line;
+      }
+      if (dataLine == null) return null;
+      final parsed = jsonDecode(dataLine.substring(5).trim());
+      if (parsed is List && parsed.isNotEmpty && parsed.first is Map) {
+        final url = (parsed.first as Map)['url']?.toString();
+        if (url != null && url.isNotEmpty) {
+          _chatterboxAudioCache[clipped] = url;
+          return url;
+        }
+      }
+      return null;
+    }
+
+    try {
+      final path = await _ensureChatterboxSamplePath();
+      if (path == null) return null;
+      final url = await runWith(path);
+      if (url != null) return url;
+      // Retry once with fresh upload in case HF Space cleared /tmp
+      _chatterboxSamplePath = null;
+      final freshPath = await _ensureChatterboxSamplePath();
+      if (freshPath == null) return null;
+      return await runWith(freshPath);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void _speakViaChatterboxDirect({
+    required String text,
+    required double playbackRate,
+    required int token,
+    String? fallbackAssetUrl,
+    void Function(bool isSpeaking)? onSpeakingChanged,
+    void Function(int wordIndex)? onWordIndex,
+    void Function(String engine)? onEngineUsed,
+  }) {
+    onEngineUsed?.call('chatterbox-cloning');
+    _requestChatterboxCloneUrl(text).then((audioUrl) {
+      if (token != _speakToken) return;
+      if (audioUrl == null || audioUrl.isEmpty) {
+        onEngineUsed?.call('clone-required');
+        onSpeakingChanged?.call(false);
+        return;
+      }
+      _playNeuralAudioUrl(
+        url: audioUrl,
+        fullText: text,
+        playbackRate: playbackRate,
+        token: token,
+        engineLabel: 'Voix réelle clonée d’Amy (Gratuit)',
+        fallbackAssetUrl: fallbackAssetUrl,
+        onFallbackWebSpeech: () {
+          onEngineUsed?.call('clone-required');
+          onSpeakingChanged?.call(false);
+        },
+        onSpeakingChanged: onSpeakingChanged,
+        onWordIndex: onWordIndex,
+        onEngineUsed: onEngineUsed,
+      );
+    });
+  }
+
   static void speak(
     String text, {
     String locale = 'en-GB',
@@ -780,8 +961,16 @@ class SpeechBridge {
 
     if (strictRealVoiceOnly) {
       if (!hasCloneBackend) {
-        onEngineUsed?.call('clone-required');
-        onSpeakingChanged?.call(false);
+        // Sur GitHub Pages (sans serveur), clonage direct 100% GRATUIT via ResembleAI Chatterbox !
+        _speakViaChatterboxDirect(
+          text: clean,
+          playbackRate: rate,
+          token: token,
+          fallbackAssetUrl: assetUrl,
+          onSpeakingChanged: onSpeakingChanged,
+          onWordIndex: onWordIndex,
+          onEngineUsed: onEngineUsed,
+        );
         return;
       }
       final resolvedVoice = voiceProfile ??
@@ -798,10 +987,15 @@ class SpeechBridge {
         token: token,
         engineLabel: 'Voix réelle clonée d’Amy',
         fallbackAssetUrl: assetUrl,
-        onFallbackWebSpeech: () {
-          onEngineUsed?.call('clone-required');
-          onSpeakingChanged?.call(false);
-        },
+        onFallbackWebSpeech: () => _speakViaChatterboxDirect(
+          text: clean,
+          playbackRate: rate,
+          token: token,
+          fallbackAssetUrl: assetUrl,
+          onSpeakingChanged: onSpeakingChanged,
+          onWordIndex: onWordIndex,
+          onEngineUsed: onEngineUsed,
+        ),
         onSpeakingChanged: onSpeakingChanged,
         onWordIndex: onWordIndex,
         onEngineUsed: onEngineUsed,
