@@ -42,7 +42,7 @@ class _DocumentsLibraryScreenState
   Widget build(BuildContext context) {
     final eco = ref.watch(ecosystemProvider);
     final profile = ref.watch(authProvider);
-    final isEditorOrAdmin = profile?.role.isEditorOrAbove ?? true;
+    final isEditorOrAdmin = profile?.role.isEditorOrAbove ?? false;
 
     final subcategories = _selectedDomain == 'Tous'
         ? const <String>[]
@@ -599,7 +599,7 @@ class _AddDocumentDialogState extends ConsumerState<_AddDocumentDialog> {
                         uploadRes['unreadableWarning']?.toString(),
                     isPrivate: _isPrivate,
                     validationStatus:
-                        (profile?.role.isEditorOrAbove ?? true)
+                        (profile?.role.isEditorOrAbove ?? false)
                             ? 'validated'
                             : 'pending',
                   );
@@ -637,8 +637,8 @@ class _DocumentDetailModalState extends ConsumerState<_DocumentDetailModal> {
       orElse: () => eco.libraryDocuments.first,
     );
     final summary = doc.summary;
-    final isEditorOrAdmin = (profile?.role.isEditorOrAbove ?? true) ||
-        profile?.fullName == doc.authorOrContributor;
+    final isEditorOrAdmin = (profile?.role.isEditorOrAbove ?? false) ||
+        (profile != null && profile.fullName == doc.authorOrContributor);
 
     return DraggableScrollableSheet(
       expand: false,

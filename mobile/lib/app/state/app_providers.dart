@@ -248,6 +248,8 @@ class EcosystemState {
   final bool restrictAppToGroupOnly;
   final List<String> deletedReflectionIds;
   final List<CommunityZikrSessionModel> communityZikrSessions;
+  final String englishCirclePrompt;
+  final List<EnglishCirclePostModel> englishCirclePosts;
 
   const EcosystemState({
     required this.reflections,
@@ -302,6 +304,9 @@ class EcosystemState {
     this.restrictAppToGroupOnly = true,
     this.deletedReflectionIds = const [],
     this.communityZikrSessions = const [],
+    this.englishCirclePrompt =
+        'Tell the circle about one habit or goal you are building in 2026 — in 30 to 60 seconds of English!',
+    this.englishCirclePosts = const [],
   });
 
   EcosystemState copyWith({
@@ -359,6 +364,8 @@ class EcosystemState {
     bool? restrictAppToGroupOnly,
     List<String>? deletedReflectionIds,
     List<CommunityZikrSessionModel>? communityZikrSessions,
+    String? englishCirclePrompt,
+    List<EnglishCirclePostModel>? englishCirclePosts,
   }) {
     return EcosystemState(
       reflections: reflections ?? this.reflections,
@@ -423,6 +430,8 @@ class EcosystemState {
       deletedReflectionIds: deletedReflectionIds ?? this.deletedReflectionIds,
       communityZikrSessions:
           communityZikrSessions ?? this.communityZikrSessions,
+      englishCirclePrompt: englishCirclePrompt ?? this.englishCirclePrompt,
+      englishCirclePosts: englishCirclePosts ?? this.englishCirclePosts,
     );
   }
 }
@@ -475,6 +484,9 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
       'quiz_leaderboard': state.quizLeaderboard.map((e) => e.toJson()).toList(),
       'community_zikr_sessions':
           state.communityZikrSessions.map((e) => e.toJson()).toList(),
+      'english_circle_prompt': state.englishCirclePrompt,
+      'english_circle_posts':
+          state.englishCirclePosts.map((e) => e.toJson()).toList(),
       'library_documents':
           state.libraryDocuments.map((e) => e.toJson()).toList(),
       'extra_groupe_meetings':
@@ -629,6 +641,17 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
                     Map<String, dynamic>.from(e)))
                 .toList()
             : state.communityZikrSessions,
+        englishCirclePrompt:
+            snap['english_circle_prompt']?.toString().trim().isNotEmpty == true
+                ? snap['english_circle_prompt'].toString()
+                : state.englishCirclePrompt,
+        englishCirclePosts: snap['english_circle_posts'] is List
+            ? (snap['english_circle_posts'] as List)
+                .whereType<Map>()
+                .map((e) => EnglishCirclePostModel.fromJson(
+                    Map<String, dynamic>.from(e)))
+                .toList()
+            : state.englishCirclePosts,
         libraryDocuments: snap['library_documents'] is List
             ? (snap['library_documents'] as List)
                 .map((e) => LibraryDocumentModel.fromJson(Map<String, dynamic>.from(e)))
@@ -833,7 +856,17 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
     _persistSnapshot();
   }
 
-  void deleteReflection(String postId) {
+  bool deleteReflection(String postId, {UserProfile? actor}) {
+    final target =
+        state.reflections.where((p) => p.id == postId).firstOrNull;
+    if (target == null) return false;
+    if (actor != null) {
+      final isOwner = !target.isHistoricalArchive &&
+          (target.authorId == actor.id || target.authorName == actor.fullName);
+      if (!actor.role.isAdminOrAbove && !isOwner) {
+        return false;
+      }
+    }
     final updated = state.reflections.where((p) => p.id != postId).toList();
     final deletedIds = {...state.deletedReflectionIds, postId}.toList();
     state = state.copyWith(
@@ -843,6 +876,7 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
     );
     BackendRepository.instance.cacheReflections(updated);
     _persistSnapshot();
+    return true;
   }
 
   void toggleArchiveReflection(String postId) {
@@ -986,23 +1020,62 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
     final updated = state.challenges.map((c) {
       if (c.id != challengeId) return c;
       double score;
+      Map<String, int> rubric;
+      String feedbackNote;
+
       if (c.correctAnswer != null) {
-        score = responseText.trim().toLowerCase() ==
-                c.correctAnswer!.trim().toLowerCase()
-            ? 100
-            : 45;
+        final ok = responseText.trim().toLowerCase() ==
+            c.correctAnswer!.trim().toLowerCase();
+        score = ok ? 100 : 45;
+        rubric = {
+          'Exactitude': ok ? 25 : 10,
+          'Compréhension': ok ? 25 : 15,
+          'Clarté': ok ? 25 : 10,
+          'Rigueur': ok ? 25 : 10,
+        };
+        feedbackNote = ok
+            ? 'Excellente réponse ! ${c.explanation}'
+            : 'À retravailler : la réponse attendue était « ${c.correctAnswer} ». ${c.explanation}';
       } else {
+        final clean = responseText.trim();
         final eval = BackendRepository.analyzeDebateLocally(
-          transcriptText: responseText,
+          transcriptText: clean.isEmpty && audioUrl != null
+              ? 'Réponse vocale enregistrée pour ce défi.'
+              : clean,
           topicQuestion: c.title,
           isIslamicSubject: c.category == 'islamic_thought',
         );
-        score = eval.totalScore.roundToDouble();
+        final audioBonus = audioUrl != null ? 6 : 0;
+        final clarity =
+            ((eval.clarity / 10) * 25).round().clamp(12, 25);
+        final argumentation =
+            ((eval.logicalReasoning / 25) * 25).round().clamp(12, 25);
+        final relevance =
+            ((eval.relevance / 20) * 25).round().clamp(12, 25);
+        final structure =
+            (((eval.depthOfAnalysis + eval.criticalNuance) / 30) * 25)
+                .round()
+                .clamp(12, 25);
+        final rawTotal =
+            (clarity + argumentation + relevance + structure + audioBonus)
+                .clamp(40, 100);
+        score = rawTotal.toDouble();
+        rubric = {
+          'Clarté': clarity,
+          'Argumentation': argumentation,
+          'Pertinence': relevance,
+          'Structure': structure,
+        };
+        feedbackNote = audioUrl != null
+            ? 'Note vocale enregistrée & évaluée ($rawTotal/100). ${eval.explanation}'
+            : 'Contribution évaluée ($rawTotal/100). ${eval.explanation}';
       }
       return c.copyWith(
         userSubmission: responseText,
-        userAudioUrl: audioUrl,
+        userAudioUrl: audioUrl ?? c.userAudioUrl,
         userScore: score,
+        userRubricBreakdown: rubric,
+        userFeedbackNote: feedbackNote,
       );
     }).toList();
     state = state.copyWith(challenges: updated);
@@ -1769,12 +1842,118 @@ class EcosystemNotifier extends StateNotifier<EcosystemState> {
     _persistSnapshot();
   }
 
-  void deleteChallenge(String challengeId) {
+  bool deleteChallenge(String challengeId, {UserProfile? actor}) {
+    final target =
+        state.challenges.where((c) => c.id == challengeId).firstOrNull;
+    if (target == null) return false;
+    final isOfficial = target.isOfficial ||
+        (target.authorId == null && RegExp(r'^ch-\d+$').hasMatch(target.id));
+    if (actor != null) {
+      final isOwner = !isOfficial &&
+          target.authorId != null &&
+          target.authorId == actor.id;
+      if (!actor.role.isAdminOrAbove && !isOwner) {
+        return false;
+      }
+    } else if (isOfficial) {
+      return false;
+    }
     state = state.copyWith(
       challenges: state.challenges.where((c) => c.id != challengeId).toList(),
       auditLogs: ['Défi supprimé : $challengeId', ...state.auditLogs],
     );
     _persistSnapshot();
+    return true;
+  }
+
+  // --- Pratiquer l'Anglais Ensemble (Espace Communautaire distinct d'Amy) ---
+  void setEnglishCirclePrompt(String prompt, {UserProfile? actor}) {
+    if (actor != null && !actor.role.isEditorOrAbove) return;
+    final clean = prompt.trim();
+    if (clean.length < 6) return;
+    state = state.copyWith(
+      englishCirclePrompt: clean,
+      auditLogs: ['Sujet English Circle mis à jour', ...state.auditLogs],
+    );
+    _persistSnapshot();
+  }
+
+  void addEnglishCirclePost({
+    required String authorId,
+    required String authorName,
+    required String cefrLevel,
+    required String englishText,
+    String? audioUrl,
+    int audioDurationSeconds = 0,
+  }) {
+    final post = EnglishCirclePostModel(
+      id: 'ec-${DateTime.now().millisecondsSinceEpoch}',
+      authorId: authorId,
+      authorName: authorName,
+      cefrLevel: cefrLevel,
+      promptTitle: state.englishCirclePrompt,
+      englishText: englishText.trim(),
+      audioUrl: audioUrl,
+      audioDurationSeconds: audioDurationSeconds,
+      createdAt: DateTime.now(),
+    );
+    state = state.copyWith(
+      englishCirclePosts: [post, ...state.englishCirclePosts],
+    );
+    _persistSnapshot();
+  }
+
+  void encourageEnglishCirclePost(String postId) {
+    state = state.copyWith(
+      englishCirclePosts: state.englishCirclePosts
+          .map((p) => p.id == postId
+              ? p.copyWith(encouragements: p.encouragements + 1)
+              : p)
+          .toList(),
+    );
+    _persistSnapshot();
+  }
+
+  void addEnglishCircleFeedback({
+    required String postId,
+    required String authorName,
+    required String note,
+    String? suggestedCorrection,
+  }) {
+    final fb = EnglishCircleFeedbackModel(
+      id: _uuid.v4(),
+      authorName: authorName,
+      note: note.trim(),
+      suggestedCorrection: suggestedCorrection?.trim().isNotEmpty == true
+          ? suggestedCorrection!.trim()
+          : null,
+      createdAt: DateTime.now(),
+    );
+    state = state.copyWith(
+      englishCirclePosts: state.englishCirclePosts
+          .map((p) => p.id == postId
+              ? p.copyWith(feedbacks: [...p.feedbacks, fb])
+              : p)
+          .toList(),
+    );
+    _persistSnapshot();
+  }
+
+  bool deleteEnglishCirclePost(String postId, {UserProfile? actor}) {
+    final target =
+        state.englishCirclePosts.where((p) => p.id == postId).firstOrNull;
+    if (target == null) return false;
+    if (actor != null &&
+        !actor.role.isAdminOrAbove &&
+        target.authorId != actor.id) {
+      return false;
+    }
+    state = state.copyWith(
+      englishCirclePosts:
+          state.englishCirclePosts.where((p) => p.id != postId).toList(),
+    );
+    _persistSnapshot();
+    return true;
   }
 
   void deleteExtraGroupeMeeting(String meetingId) {

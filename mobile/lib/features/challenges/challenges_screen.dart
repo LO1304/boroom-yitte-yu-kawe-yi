@@ -82,7 +82,7 @@ class _ChallengesScreenState extends ConsumerState<ChallengesScreen> {
       appBar: AppBar(
         title: const Text('Défis & Arènes'),
         actions: [
-          if (profile?.role.isAdminOrAbove ?? true)
+          if (profile?.role.isAdminOrAbove ?? false)
             IconButton(
               tooltip: 'Créer / Planifier un défi',
               icon: const Icon(Icons.add_circle_outline_rounded),
@@ -304,6 +304,28 @@ class _ChallengesScreenState extends ConsumerState<ChallengesScreen> {
                         ],
                       ),
                     ),
+                    if (c.userRubricBreakdown.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: c.userRubricBreakdown.entries
+                            .map(
+                              (e) => YitteStatusPill(
+                                label: '${e.key} : ${e.value}/25',
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                    if (c.userFeedbackNote != null &&
+                        c.userFeedbackNote!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        c.userFeedbackNote!,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ],
                   const SizedBox(height: 12),
                   Wrap(
@@ -314,19 +336,39 @@ class _ChallengesScreenState extends ConsumerState<ChallengesScreen> {
                       ElevatedButton(
                         onPressed: () => _openSolveChallengeSheet(context, c),
                         child: Text(c.userSubmission == null
-                            ? 'Relever ce défi'
-                            : 'Revoir / Modifier'),
+                            ? 'Enregistrer & Relever ce défi'
+                            : 'Réécouter / Améliorer'),
                       ),
-                      if (profile == null || profile.role.isAdminOrAbove)
+                      if (c.isOfficial || c.id.startsWith('ch-'))
+                        const YitteStatusPill(
+                          icon: Icons.verified_outlined,
+                          label: 'Défi officiel protégé',
+                        ),
+                      if (profile != null &&
+                          (profile.role.isAdminOrAbove ||
+                              (!(c.isOfficial || c.id.startsWith('ch-')) &&
+                                  c.authorId != null &&
+                                  c.authorId == profile.id)))
                         IconButton(
                           tooltip: 'Supprimer ce défi',
                           icon: const Icon(
                             Icons.delete_outline_rounded,
                             color: YitteColors.danger,
                           ),
-                          onPressed: () => ref
-                              .read(ecosystemProvider.notifier)
-                              .deleteChallenge(c.id),
+                          onPressed: () {
+                            final ok = ref
+                                .read(ecosystemProvider.notifier)
+                                .deleteChallenge(c.id, actor: profile);
+                            if (!ok) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Action réservée à l’auteur du défi ou à un administrateur.',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
                         ),
                     ],
                   ),

@@ -510,9 +510,14 @@ class ChallengeItem {
   final String? correctAnswer;
   final String explanation;
   final DateTime scheduledPublishAt;
+  final bool isOfficial;
+  final String? authorId;
+  final String? authorName;
   final String? userSubmission;
   final String? userAudioUrl;
   final double? userScore;
+  final Map<String, int> userRubricBreakdown;
+  final String? userFeedbackNote;
 
   const ChallengeItem({
     required this.id,
@@ -528,15 +533,22 @@ class ChallengeItem {
     this.correctAnswer,
     required this.explanation,
     required this.scheduledPublishAt,
+    this.isOfficial = false,
+    this.authorId,
+    this.authorName,
     this.userSubmission,
     this.userAudioUrl,
     this.userScore,
+    this.userRubricBreakdown = const {},
+    this.userFeedbackNote,
   });
 
   ChallengeItem copyWith({
     String? userSubmission,
     String? userAudioUrl,
     double? userScore,
+    Map<String, int>? userRubricBreakdown,
+    String? userFeedbackNote,
   }) =>
       ChallengeItem(
         id: id,
@@ -552,9 +564,14 @@ class ChallengeItem {
         correctAnswer: correctAnswer,
         explanation: explanation,
         scheduledPublishAt: scheduledPublishAt,
+        isOfficial: isOfficial,
+        authorId: authorId,
+        authorName: authorName,
         userSubmission: userSubmission ?? this.userSubmission,
         userAudioUrl: userAudioUrl ?? this.userAudioUrl,
         userScore: userScore ?? this.userScore,
+        userRubricBreakdown: userRubricBreakdown ?? this.userRubricBreakdown,
+        userFeedbackNote: userFeedbackNote ?? this.userFeedbackNote,
       );
 
   Map<String, dynamic> toJson() => {
@@ -571,9 +588,15 @@ class ChallengeItem {
         'correct_answer': correctAnswer,
         'explanation': explanation,
         'scheduled_publish_at': scheduledPublishAt.toIso8601String(),
+        'is_official': isOfficial,
+        if (authorId != null) 'author_id': authorId,
+        if (authorName != null) 'author_name': authorName,
         'user_submission': userSubmission,
         'user_audio_url': userAudioUrl,
         'user_score': userScore,
+        if (userRubricBreakdown.isNotEmpty)
+          'user_rubric_breakdown': userRubricBreakdown,
+        if (userFeedbackNote != null) 'user_feedback_note': userFeedbackNote,
       };
 
   factory ChallengeItem.fromJson(Map<String, dynamic> j) => ChallengeItem(
@@ -594,9 +617,19 @@ class ChallengeItem {
         scheduledPublishAt:
             DateTime.tryParse(j['scheduled_publish_at']?.toString() ?? '') ??
                 DateTime.now(),
+        isOfficial: j['is_official'] == true ||
+            j['id'].toString().startsWith('ch-'),
+        authorId: j['author_id']?.toString(),
+        authorName: j['author_name']?.toString(),
         userSubmission: j['user_submission']?.toString(),
         userAudioUrl: j['user_audio_url']?.toString(),
         userScore: (j['user_score'] as num?)?.toDouble(),
+        userRubricBreakdown: (j['user_rubric_breakdown'] is Map)
+            ? (j['user_rubric_breakdown'] as Map).map(
+                (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+              )
+            : const {},
+        userFeedbackNote: j['user_feedback_note']?.toString(),
       );
 }
 
@@ -2089,5 +2122,122 @@ class AppNotificationItem {
             ? DateTime.tryParse(j['event_date'].toString())
             : null,
         location: j['location']?.toString(),
+      );
+}
+
+class EnglishCircleFeedbackModel {
+  final String id;
+  final String authorName;
+  final String note;
+  final String? suggestedCorrection;
+  final DateTime createdAt;
+
+  const EnglishCircleFeedbackModel({
+    required this.id,
+    required this.authorName,
+    required this.note,
+    this.suggestedCorrection,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'author_name': authorName,
+        'note': note,
+        if (suggestedCorrection != null && suggestedCorrection!.isNotEmpty)
+          'suggested_correction': suggestedCorrection,
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  factory EnglishCircleFeedbackModel.fromJson(Map<String, dynamic> j) =>
+      EnglishCircleFeedbackModel(
+        id: j['id'].toString(),
+        authorName: j['author_name']?.toString() ?? 'Membre',
+        note: j['note']?.toString() ?? '',
+        suggestedCorrection: j['suggested_correction']?.toString(),
+        createdAt: DateTime.tryParse(j['created_at']?.toString() ?? '') ??
+            DateTime.now(),
+      );
+}
+
+class EnglishCirclePostModel {
+  final String id;
+  final String authorId;
+  final String authorName;
+  final String cefrLevel;
+  final String promptTitle;
+  final String englishText;
+  final String? audioUrl;
+  final int audioDurationSeconds;
+  final int encouragements;
+  final List<EnglishCircleFeedbackModel> feedbacks;
+  final DateTime createdAt;
+
+  const EnglishCirclePostModel({
+    required this.id,
+    required this.authorId,
+    required this.authorName,
+    required this.cefrLevel,
+    required this.promptTitle,
+    required this.englishText,
+    this.audioUrl,
+    this.audioDurationSeconds = 0,
+    this.encouragements = 0,
+    this.feedbacks = const [],
+    required this.createdAt,
+  });
+
+  EnglishCirclePostModel copyWith({
+    int? encouragements,
+    List<EnglishCircleFeedbackModel>? feedbacks,
+  }) =>
+      EnglishCirclePostModel(
+        id: id,
+        authorId: authorId,
+        authorName: authorName,
+        cefrLevel: cefrLevel,
+        promptTitle: promptTitle,
+        englishText: englishText,
+        audioUrl: audioUrl,
+        audioDurationSeconds: audioDurationSeconds,
+        encouragements: encouragements ?? this.encouragements,
+        feedbacks: feedbacks ?? this.feedbacks,
+        createdAt: createdAt,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'author_id': authorId,
+        'author_name': authorName,
+        'cefr_level': cefrLevel,
+        'prompt_title': promptTitle,
+        'english_text': englishText,
+        if (audioUrl != null) 'audio_url': audioUrl,
+        'audio_duration_seconds': audioDurationSeconds,
+        'encouragements': encouragements,
+        'feedbacks': feedbacks.map((f) => f.toJson()).toList(),
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  factory EnglishCirclePostModel.fromJson(Map<String, dynamic> j) =>
+      EnglishCirclePostModel(
+        id: j['id'].toString(),
+        authorId: j['author_id']?.toString() ?? '',
+        authorName: j['author_name']?.toString() ?? 'Membre',
+        cefrLevel: j['cefr_level']?.toString() ?? 'B1',
+        promptTitle: j['prompt_title']?.toString() ?? '',
+        englishText: j['english_text']?.toString() ?? '',
+        audioUrl: j['audio_url']?.toString(),
+        audioDurationSeconds:
+            (j['audio_duration_seconds'] as num?)?.toInt() ?? 0,
+        encouragements: (j['encouragements'] as num?)?.toInt() ?? 0,
+        feedbacks: (j['feedbacks'] as List?)
+                ?.whereType<Map>()
+                .map((e) => EnglishCircleFeedbackModel.fromJson(
+                    Map<String, dynamic>.from(e)))
+                .toList() ??
+            const [],
+        createdAt: DateTime.tryParse(j['created_at']?.toString() ?? '') ??
+            DateTime.now(),
       );
 }

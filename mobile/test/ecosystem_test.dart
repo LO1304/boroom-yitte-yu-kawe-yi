@@ -252,8 +252,9 @@ void main() {
 
     expect(find.text('ENGLISH STUDIO'), findsOneWidget);
     expect(find.text('Discuter'), findsOneWidget);
+    expect(find.text('Ensemble'), findsOneWidget);
     expect(find.text('Cours'), findsOneWidget);
-    expect(find.text('Vocabulaire'), findsOneWidget);
+    expect(find.text('Mots'), findsOneWidget);
     expect(find.text('Café & Rencontre'), findsOneWidget);
     expect(find.textContaining('Welcome'), findsWidgets);
 
@@ -758,25 +759,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('PARCOURS INFINI • TES OBJECTIFS'), findsOneWidget);
     expect(find.text('Parcours de perfectionnement'), findsOneWidget);
-    // Clean Learna UI: no raw external portal link dumps inside the app
+    expect(find.text('COMMENCER'), findsOneWidget);
+    // Clean Learna/Duolingo UI: no raw external portal link dumps inside the app
     expect(find.textContaining('British Council LearnEnglish'), findsNothing);
 
     final b1Lesson = find.textContaining('Present Perfect vs Past');
     await _scrollTo(tester, b1Lesson);
     await tester.tap(b1Lesson);
     await tester.pumpAndSettle();
-    expect(find.text('1. L’ESSENTIEL À MAÎTRISER'), findsOneWidget);
-    final nextStepBtn = find.text('Valider (+50 XP) & Étape suivante →');
-    await _scrollTo(tester, nextStepBtn);
-    expect(nextStepBtn, findsOneWidget);
-    final practiceBtn = find.text('Pratiquer cette leçon avec Amy →');
-    await _scrollTo(tester, practiceBtn);
-    expect(practiceBtn, findsOneWidget);
-
-    // Advance seamlessly to Step 2 and verify +50 XP & continuous progression
-    await tester.tap(nextStepBtn);
+    expect(find.text('COMMENCER LES EXERCICES →'), findsOneWidget);
+    await tester.tap(find.text('COMMENCER LES EXERCICES →'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('faux amis'), findsOneWidget);
+    expect(find.text('VÉRIFIER'), findsOneWidget);
   });
 
   testWidgets(
@@ -940,5 +934,109 @@ void main() {
         .firstWhere((s) => s.id == created.id);
     expect(updatedSession.currentCount, 100);
     expect(updatedSession.contributions['Cheikh Mouhamadou Moustapha Lo'], 100);
+  });
+
+  testWidgets(
+      'Strict RBAC locks official challenges, rubric grades responses, and Ensemble tab + Amy real voice work',
+      (tester) async {
+    final notifier = EcosystemNotifier();
+    final member = UserProfile(
+      id: 'u-member-1',
+      username: 'moussa',
+      fullName: 'Moussa Ndiaye',
+      email: 'moussa@byyk.org',
+      country: 'Sénégal',
+      city: 'Dakar',
+      bio: 'Membre actif',
+      role: AppRole.member,
+    );
+    final otherMember = UserProfile(
+      id: 'u-member-2',
+      username: 'fatou',
+      fullName: 'Fatou Diop',
+      email: 'fatou@byyk.org',
+      country: 'Sénégal',
+      city: 'Dakar',
+      bio: 'Membre actif',
+      role: AppRole.member,
+    );
+    final admin = UserProfile(
+      id: 'u-admin-1',
+      username: 'superadmin',
+      fullName: 'Super Admin',
+      email: 'admin@byyk.org',
+      country: 'Sénégal',
+      city: 'Dakar',
+      bio: 'Admin',
+      role: AppRole.superAdmin,
+    );
+
+    // Official challenge ch-1 cannot be deleted by a member or unauthenticated user
+    expect(notifier.deleteChallenge('ch-1', actor: null), isFalse);
+    expect(notifier.deleteChallenge('ch-1', actor: member), isFalse);
+    expect(notifier.state.challenges.any((c) => c.id == 'ch-1'), isTrue);
+
+    // Member-created challenge cannot be deleted by another member, but can by owner
+    notifier.createChallenge(
+      ChallengeItem(
+        id: 'ch-custom-1',
+        title: 'Défi de Moussa',
+        category: 'culture',
+        format: 'oral',
+        difficulty: 'intermediaire',
+        description: 'Partagez une idée',
+        instructions: 'Répondez clairement en 3 phrases.',
+        evaluationCriteria: const ['Clarté', 'Argumentation'],
+        explanation: 'Explication du défi.',
+        timeLimitSeconds: 120,
+        scheduledPublishAt: DateTime.now(),
+        isOfficial: false,
+        authorId: member.id,
+        authorName: member.fullName,
+      ),
+    );
+    expect(notifier.deleteChallenge('ch-custom-1', actor: otherMember), isFalse);
+    expect(notifier.deleteChallenge('ch-custom-1', actor: member), isTrue);
+
+    // Submit challenge response produces structured 4-part rubric & feedback
+    notifier.submitChallengeResponse(
+      'ch-1',
+      'Je pense que la discipline et la science sont essentielles parce que notre communauté progresse par exemple grâce au travail collectif. En conclusion, restons constants.',
+      audioUrl: 'web-audio-mock',
+    );
+    final graded =
+        notifier.state.challenges.firstWhere((c) => c.id == 'ch-1');
+    expect(graded.userScore, isNotNull);
+    expect(graded.userScore!, inInclusiveRange(40, 100));
+    expect(graded.userRubricBreakdown.length, 4);
+    expect(graded.userFeedbackNote, isNotNull);
+
+    // English Circle ("Pratiquer ensemble") post, peer feedback & RBAC delete
+    notifier.addEnglishCirclePost(
+      authorId: member.id,
+      authorName: member.fullName,
+      cefrLevel: 'B1',
+      englishText: 'I am working on my English fluency every morning.',
+    );
+    final post = notifier.state.englishCirclePosts.first;
+    notifier.addEnglishCircleFeedback(
+      postId: post.id,
+      authorName: otherMember.fullName,
+      note: 'Le présent simple sonne encore plus naturel pour une habitude.',
+      suggestedCorrection: 'I work on my English fluency every morning.',
+    );
+    expect(
+      notifier.deleteEnglishCirclePost(post.id, actor: otherMember),
+      isFalse,
+    );
+    expect(notifier.deleteEnglishCirclePost(post.id, actor: admin), isTrue);
+
+    // UI check on Ensemble tab + Sokhna Amy's real voice card
+    await tester.pumpWidget(_wrapScreen(const EnglishClubScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ensemble'));
+    await tester.pumpAndSettle();
+    expect(find.text('PRATIQUER ENSEMBLE • CERCLE ANGLAIS'), findsOneWidget);
+    expect(find.textContaining('Voix réelle d’Amy'), findsOneWidget);
   });
 }

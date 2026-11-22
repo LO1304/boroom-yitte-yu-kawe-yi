@@ -914,7 +914,18 @@ class SpeechBridge {
         final err = (errAny != null && errAny.isA<JSString>())
             ? (errAny as JSString).toDart
             : 'audio-error';
-        onError?.call('Dictée micro : $err');
+        final friendly = switch (err) {
+          'network' =>
+            'Dictée temps réel indisponible dans ce navigateur : enregistrez votre voix avec le bouton audio ou saisissez votre réponse.',
+          'not-allowed' || 'service-not-allowed' =>
+            'Accès au microphone refusé : autorisez le micro dans les paramètres du navigateur.',
+          'no-speech' =>
+            'Aucune voix détectée : rapprochez-vous du micro et réessayez.',
+          'audio-capture' =>
+            'Aucun microphone détecté sur cet appareil.',
+          _ => 'Dictée vocale interrompue ($err).',
+        };
+        onError?.call(friendly);
       }).toJS;
 
       rec.callMethod('start'.toJS);

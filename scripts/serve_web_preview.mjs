@@ -952,6 +952,70 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (cleanPath === '/api/transcribe' && req.method === 'POST') {
+    try {
+      const { audioBase64 = '', mimeType = 'audio/webm', language = 'en' } =
+        await readJsonBody(req);
+      const env = loadDotEnv();
+      if (!audioBase64) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: 'Audio manquant.' }));
+        return;
+      }
+      const audioBuf = Buffer.from(String(audioBase64), 'base64');
+      const ext = mimeType.includes('mp4')
+        ? 'm4a'
+        : mimeType.includes('ogg')
+          ? 'ogg'
+          : 'webm';
+      const langCode = String(language).split('-')[0].toLowerCase() || 'en';
+
+      // Tier 1: Groq Whisper (ultra-rapide) ou OpenAI Whisper si clé présente dans .env
+      const apiKey = (env.GROQ_API_KEY || env.OPENAI_API_KEY || '').trim();
+      if (apiKey) {
+        const isGroq = Boolean(env.GROQ_API_KEY && env.GROQ_API_KEY.trim());
+        const endpoint = isGroq
+          ? 'https://api.groq.com/openai/v1/audio/transcriptions'
+          : 'https://api.openai.com/v1/audio/transcriptions';
+        const form = new FormData();
+        form.append(
+          'file',
+          new Blob([audioBuf], { type: mimeType }),
+          `recording.${ext}`,
+        );
+        form.append('model', isGroq ? 'whisper-large-v3-turbo' : 'whisper-1');
+        form.append('language', langCode);
+
+        const wRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: form,
+        });
+        if (wRes.ok) {
+          const wJson = await wRes.json();
+          const transcript = String(wJson?.text || '').trim();
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, transcript, engine: isGroq ? 'groq-whisper' : 'openai-whisper' }));
+          return;
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          ok: false,
+          fallback: true,
+          message:
+            'Audio enregistré avec succès. Configurez GROQ_API_KEY ou OPENAI_API_KEY dans .env pour la transcription serveur automatique.',
+        }),
+      );
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, error: String(e) }));
+    }
+    return;
+  }
+
   if (cleanPath === '/api/tts' && (req.method === 'GET' || req.method === 'POST')) {
     try {
       const body = req.method === 'POST' ? await readJsonBody(req) : {};

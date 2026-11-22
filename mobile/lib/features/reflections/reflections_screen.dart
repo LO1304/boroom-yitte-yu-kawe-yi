@@ -243,7 +243,7 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                       onPressed: () =>
                           ref.read(ecosystemProvider.notifier).toggleSaveReflection(p.id),
                     ),
-                    if (profile?.role.isEditorOrAbove ?? true)
+                    if (profile?.role.isEditorOrAbove ?? false)
                       IconButton(
                         tooltip: 'Ajouter à la bibliothèque',
                         icon: Icon(
@@ -266,9 +266,11 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                       onPressed: () =>
                           ref.read(ecosystemProvider.notifier).toggleArchiveReflection(p.id),
                     ),
-                    if (profile == null ||
-                        profile.role.isAdminOrAbove ||
-                        profile.fullName == p.authorName)
+                    if (profile != null &&
+                        (profile.role.isAdminOrAbove ||
+                            (!p.isHistoricalArchive &&
+                                (p.authorId == profile.id ||
+                                    p.authorName == profile.fullName))))
                       IconButton(
                         tooltip: 'Supprimer ce sujet',
                         icon: const Icon(
@@ -277,12 +279,16 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                           color: YitteColors.danger,
                         ),
                         onPressed: () {
-                          ref
+                          final ok = ref
                               .read(ecosystemProvider.notifier)
-                              .deleteReflection(p.id);
+                              .deleteReflection(p.id, actor: profile);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Sujet / publication supprimé.'),
+                            SnackBar(
+                              content: Text(
+                                ok
+                                    ? 'Sujet / publication supprimé.'
+                                    : 'Action réservée à l’auteur ou à un administrateur.',
+                              ),
                             ),
                           );
                         },
@@ -679,7 +685,7 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                     spacing: 8,
                     children: [
                       if (summary.status != 'published' &&
-                          (profile?.role.isEditorOrAbove ?? true))
+                          (profile?.role.isEditorOrAbove ?? false))
                         ElevatedButton.icon(
                           icon: const Icon(Icons.verified_rounded),
                           label: const Text('Valider & Publier (Éditeur)'),

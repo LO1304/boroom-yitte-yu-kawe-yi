@@ -1,16 +1,20 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/state/app_providers.dart';
+import '../../core/models/domain_models.dart';
 import '../../core/services/audio_service.dart';
 import '../../core/services/english_learna_curriculum.dart';
 import '../../core/services/english_open_source_service.dart';
+import '../../core/services/external_link_bridge.dart';
 import '../../core/services/speech_bridge.dart';
+import '../../core/services/whatsapp_bridge_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/editorial_widgets.dart';
+import 'duolingo_lesson_player.dart';
 
 class EnglishClubScreen extends ConsumerStatefulWidget {
   const EnglishClubScreen({super.key});
@@ -29,11 +33,19 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   static const _streakPrefKey = 'yitte_learna_streak_v1';
   static const _xpPrefKey = 'yitte_learna_xp_v1';
 
-  // 0 = Discuter (Amy), 1 = Cours (A1–C2), 2 = Vocabulaire
+  // 0 = Discuter (Amy), 1 = Ensemble (Communauté), 2 = Cours (Duolingo), 3 = Vocabulaire
   int _activeTab = 0;
   String _cefr = 'B1';
   String _voiceProfile = 'amy-soft-uk'; // amy-soft-uk (UK) | amy-fluent-us (US)
   double _speechRate = 0.96; // 0.96 (Fluide) | 0.78 (Lent)
+
+  // Espace communautaire "Pratiquer l'anglais ensemble"
+  final _circleTextCtrl = TextEditingController();
+  bool _circleConsent = true;
+  String? _circleRecordedUrl;
+  int _circleRecordedSec = 0;
+  String? _playingCircleAudioId;
+  bool _playingRealAmyIntro = false;
 
   // Conversation naturelle avec Amy (façon Learna AI)
   int _topicIdx = 0;
@@ -61,7 +73,6 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
   LearnaLesson? _openLesson;
   Set<String> _completedLessonIds = {};
   List<LearnaLesson> _generatedLessons = [];
-  final Map<String, String> _lessonQuizFeedback = {};
   int _dailyGoal = 3;
   int _todayDone = 0;
   int _streakDays = 1;
@@ -96,8 +107,10 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     _chatInputCtrl.dispose();
     _chatScrollCtrl.dispose();
     _dictCtrl.dispose();
+    _circleTextCtrl.dispose();
     if (_listening) SpeechBridge.stopDictation();
     SpeechBridge.stopSpeaking();
+    SpeechBridge.stopAudioPlayback();
     super.dispose();
   }
 
@@ -216,16 +229,6 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         ),
       );
     }
-  }
-
-  Future<void> _toggleLessonCompleted(String lessonId) async {
-    if (!_completedLessonIds.contains(lessonId)) {
-      await _recordStepCompletion(lessonId);
-      return;
-    }
-    final next = Set<String>.from(_completedLessonIds)..remove(lessonId);
-    setState(() => _completedLessonIds = next);
-    await _persistInfiniteState();
   }
 
   Future<LearnaLesson?> _generateNextInfiniteLesson({
@@ -611,7 +614,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
       ),
       body: Column(
         children: [
-          // Barre 3 onglets épurée (façon Learna AI : Discuter • Cours • Vocabulaire)
+          // Barre 4 onglets épurée : Discuter (Amy) • Ensemble • Cours (Duolingo) • Vocabulaire
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
             child: Container(
@@ -630,16 +633,22 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
                     onTap: () => setState(() => _activeTab = 0),
                   ),
                   _StudioTabButton(
-                    icon: Icons.school_outlined,
-                    label: 'Cours',
+                    icon: Icons.groups_outlined,
+                    label: 'Ensemble',
                     active: _activeTab == 1,
                     onTap: () => setState(() => _activeTab = 1),
                   ),
                   _StudioTabButton(
-                    icon: Icons.menu_book_outlined,
-                    label: 'Vocabulaire',
+                    icon: Icons.route_outlined,
+                    label: 'Cours',
                     active: _activeTab == 2,
                     onTap: () => setState(() => _activeTab = 2),
+                  ),
+                  _StudioTabButton(
+                    icon: Icons.menu_book_outlined,
+                    label: 'Mots',
+                    active: _activeTab == 3,
+                    onTap: () => setState(() => _activeTab = 3),
                   ),
                 ],
               ),
@@ -648,7 +657,8 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
           Expanded(
             child: switch (_activeTab) {
               0 => _buildLearnaChatTab(context),
-              1 => _buildCoursesTab(context),
+              1 => _buildTogetherTab(context, eco, audio),
+              2 => _buildCoursesTab(context),
               _ => _buildVocabularyTab(context, eco, audio),
             },
           ),
@@ -1393,12 +1403,564 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     );
   }
 
+  void _toggleRealAmyIntroAudio() {
+    if (_playingRealAmyIntro) {
+      SpeechBridge.stopAudioPlayback();
+      setState(() => _playingRealAmyIntro = false);
+      return;
+    }
+    SpeechBridge.stopSpeaking();
+    setState(() {
+      _playingRealAmyIntro = true;
+      _playingCircleAudioId = null;
+    });
+    SpeechBridge.playAudioUrl(
+      'assets/assets/audio/amy/amy_real_intro.ogg',
+      onEnded: () {
+        if (mounted) setState(() => _playingRealAmyIntro = false);
+      },
+      onError: (_) {
+        if (mounted) setState(() => _playingRealAmyIntro = false);
+        _speakFluid(
+          "Hello, my name is Amy. I'm twenty years old and I live in Villejuif. My goal is to become an aerospace engineer.",
+        );
+      },
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
-  // ONGLET 1 : PARCOURS INFINI & OBJECTIFS (ÉTAPES ILLIMITÉES A1 → C2)
+  // ONGLET 1 : PRATIQUER L'ANGLAIS ENSEMBLE (COMMUNAUTÉ — DISTINCT D'AMY)
+  // ═══════════════════════════════════════════════════════════════════════
+  Widget _buildTogetherTab(
+    BuildContext context,
+    EcosystemState eco,
+    AudioService audio,
+  ) {
+    final tokens = AppTheme.tokensOf(context);
+    final profile = ref.watch(authProvider);
+    final isEditorOrAdmin = profile?.role.isEditorOrAbove ?? false;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
+      children: [
+        // Carte Sujet Communautaire d'Anglais (Ensemble entre membres)
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: YitteColors.emerald,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: YitteColors.gold, width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'PRATIQUER ENSEMBLE • CERCLE ANGLAIS',
+                      style: TextStyle(
+                        color: YitteColors.gold,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  if (isEditorOrAdmin)
+                    InkWell(
+                      onTap: () => _openEditCirclePromptDialog(context, eco),
+                      child: const Icon(
+                        Icons.edit_outlined,
+                        size: 17,
+                        color: YitteColors.gold,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                eco.englishCirclePrompt,
+                style: const TextStyle(
+                  fontFamily: YitteFonts.display,
+                  color: YitteColors.ivory,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: YitteColors.gold,
+                      foregroundColor: YitteColors.inkDark,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () => _speakFluid(eco.englishCirclePrompt),
+                    icon: const Icon(Icons.volume_up_rounded, size: 16),
+                    label: const Text('Écouter le sujet'),
+                  ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: YitteColors.ivory,
+                      side: BorderSide(
+                        color: YitteColors.gold.withValues(alpha: 0.7),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () {
+                      final formatted =
+                          WhatsAppBridgeService.formatSingleMemberQuestion(
+                        subjectTitle: 'Pratiquer l’Anglais Ensemble',
+                        contextLabel: 'English Club Communautaire • BOROOM YITTÉ',
+                        questionText: eco.englishCirclePrompt,
+                      );
+                      final url = WhatsAppBridgeService.buildShareUrl(
+                        formatted,
+                        groupInviteUrl: eco.whatsappInviteUrl,
+                      );
+                      ExternalLinkBridge.openUrl(url);
+                    },
+                    icon: const Icon(Icons.share_outlined, size: 15),
+                    label: const Text('Partager sur WhatsApp'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Présentation vocale réelle d'Amy (enregistrée par la membre du cercle)
+        YitteSurfaceCard(
+          borderColor: tokens.borderAccent,
+          padding: const EdgeInsets.all(13),
+          child: Row(
+            children: [
+              Material(
+                color: YitteColors.emerald,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: _playingRealAmyIntro
+                      ? 'Arrêter l’audio'
+                      : 'Écouter la voix réelle d’Amy',
+                  onPressed: _toggleRealAmyIntroAudio,
+                  icon: Icon(
+                    _playingRealAmyIntro
+                        ? Icons.stop_rounded
+                        : Icons.play_arrow_rounded,
+                    color: YitteColors.gold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Voix réelle d’Amy — Exemple bilingue EN / FR',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '« Hello, my name is Amy, I’m 20 years old… My goal is to become an aerospace engineer. »',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Enregistreur vocal natif fiable + Texte anglais pour participer avec le groupe
+        YitteSurfaceCard(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'PARTAGER VOTRE PRISE DE PAROLE EN ANGLAIS',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w700,
+                      color: tokens.goldAccent,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              ConsentVoiceRecorderCard(
+                audioService: audio,
+                prefix: 'english_circle',
+                consentGranted: _circleConsent,
+                speechLocale: _activeLocale,
+                onConsentChanged: (v) => setState(() => _circleConsent = v),
+                onLiveTranscript: (t) {
+                  if (t.trim().isNotEmpty) {
+                    setState(() => _circleTextCtrl.text = t);
+                  }
+                },
+                onRecorded: (url, sec) {
+                  setState(() {
+                    _circleRecordedUrl = url;
+                    _circleRecordedSec = sec;
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _circleTextCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Votre texte ou transcription en anglais',
+                  hintText:
+                      'Ex : In 2026, I am building a daily habit of speaking English with the group…',
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    final txt = _circleTextCtrl.text.trim();
+                    if (txt.isEmpty && _circleRecordedUrl == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Enregistrez une note vocale ou écrivez quelques mots en anglais.',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    ref.read(ecosystemProvider.notifier).addEnglishCirclePost(
+                          authorId: profile?.id ?? 'guest',
+                          authorName: profile?.fullName ?? 'Membre du cercle',
+                          cefrLevel: _cefr,
+                          englishText: txt.isNotEmpty
+                              ? txt
+                              : 'Note vocale en anglais (${_circleRecordedSec}s)',
+                          audioUrl: _circleRecordedUrl,
+                          audioDurationSeconds: _circleRecordedSec,
+                        );
+                    setState(() {
+                      _circleTextCtrl.clear();
+                      _circleRecordedUrl = null;
+                      _circleRecordedSec = 0;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Prise de parole publiée dans le cercle anglais !'),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.send_rounded, size: 17),
+                  label: const Text('Publier pour le groupe'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        Text(
+          'ÉCHANGES DES MEMBRES (${eco.englishCirclePosts.length})',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+
+        if (eco.englishCirclePosts.isEmpty)
+          YitteSurfaceCard(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Soyez le premier membre à enregistrer ou écrire votre réponse en anglais sur le sujet ci-dessus ! Les autres membres pourront vous écouter, vous encourager et proposer des tournures plus naturelles.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          )
+        else
+          ...eco.englishCirclePosts.map((post) {
+            final isPlaying = _playingCircleAudioId == post.id;
+            final canDelete = profile != null &&
+                (profile.role.isAdminOrAbove || post.authorId == profile.id);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: YitteSurfaceCard(
+                padding: const EdgeInsets.all(13),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            post.authorName,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                        YitteStatusPill(label: post.cefrLevel),
+                        if (canDelete) ...[
+                          const SizedBox(width: 4),
+                          IconButton(
+                            tooltip: 'Supprimer ma publication',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                              size: 18,
+                              color: YitteColors.danger,
+                            ),
+                            onPressed: () => ref
+                                .read(ecosystemProvider.notifier)
+                                .deleteEnglishCirclePost(post.id,
+                                    actor: profile),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    if (post.audioUrl != null && post.audioUrl!.isNotEmpty) ...[
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          if (isPlaying) {
+                            SpeechBridge.stopAudioPlayback();
+                            setState(() => _playingCircleAudioId = null);
+                          } else {
+                            setState(() {
+                              _playingCircleAudioId = post.id;
+                              _playingRealAmyIntro = false;
+                            });
+                            SpeechBridge.playAudioUrl(
+                              post.audioUrl!,
+                              onEnded: () {
+                                if (mounted) {
+                                  setState(() => _playingCircleAudioId = null);
+                                }
+                              },
+                              onError: (_) {
+                                if (mounted) {
+                                  setState(() => _playingCircleAudioId = null);
+                                }
+                              },
+                            );
+                          }
+                        },
+                        icon: Icon(
+                          isPlaying
+                              ? Icons.stop_circle_outlined
+                              : Icons.play_circle_outline_rounded,
+                          size: 18,
+                          color: YitteColors.emerald,
+                        ),
+                        label: Text(
+                          isPlaying
+                              ? 'Arrêter la note vocale'
+                              : 'Écouter la voix (${post.audioDurationSeconds}s)',
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+                    Text(
+                      post.englishText,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: () => ref
+                              .read(ecosystemProvider.notifier)
+                              .encourageEnglishCirclePost(post.id),
+                          icon: const Icon(Icons.thumb_up_alt_outlined, size: 15),
+                          label: Text('Bravo (${post.encouragements})'),
+                        ),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: () =>
+                              _openPeerFeedbackDialog(context, post, profile),
+                          icon: const Icon(Icons.auto_fix_high_outlined, size: 15),
+                          label: const Text('Aider / Mieux dire'),
+                        ),
+                      ],
+                    ),
+                    if (post.feedbacks.isNotEmpty) ...[
+                      const Divider(height: 12),
+                      ...post.feedbacks.map(
+                        (fb) => Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.all(9),
+                          decoration: BoxDecoration(
+                            color: tokens.goldSurface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: tokens.borderAccent),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                fb.authorName,
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                fb.note,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              if (fb.suggestedCorrection != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Text(
+                                    'Mieux dire : "${fb.suggestedCorrection}"',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: YitteColors.emerald,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Future<void> _openEditCirclePromptDialog(
+    BuildContext context,
+    EcosystemState eco,
+  ) async {
+    final ctrl = TextEditingController(text: eco.englishCirclePrompt);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sujet oral anglais du cercle'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Question / thème en anglais pour les membres',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(ecosystemProvider.notifier).setEnglishCirclePrompt(
+                    ctrl.text,
+                    actor: ref.read(authProvider),
+                  );
+              Navigator.pop(ctx);
+            },
+            child: const Text('Mettre à jour'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openPeerFeedbackDialog(
+    BuildContext context,
+    EnglishCirclePostModel post,
+    UserProfile? profile,
+  ) async {
+    final noteCtrl = TextEditingController();
+    final fixCtrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Conseiller ${post.authorName}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: noteCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Encouragement ou remarque',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: fixCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Formulation plus naturelle (optionnel)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (noteCtrl.text.trim().isEmpty && fixCtrl.text.trim().isEmpty) {
+                return;
+              }
+              ref.read(ecosystemProvider.notifier).addEnglishCircleFeedback(
+                    postId: post.id,
+                    authorName: profile?.fullName ?? 'Membre du cercle',
+                    note: noteCtrl.text.trim().isNotEmpty
+                        ? noteCtrl.text.trim()
+                        : 'Suggestion d’amélioration :',
+                    suggestedCorrection: fixCtrl.text.trim(),
+                  );
+              Navigator.pop(ctx);
+            },
+            child: const Text('Envoyer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ONGLET 2 : PARCOURS DUOLINGO INFINI & OBJECTIFS (ÉTAPES ILLIMITÉES A1 → C2)
   // ═══════════════════════════════════════════════════════════════════════
   Widget _buildCoursesTab(BuildContext context) {
     if (_openLesson != null) {
-      return _buildLessonDetail(context, _openLesson!);
+      return DuolingoLessonPlayer(
+        lesson: _openLesson!,
+        onSpeak: (text, {rate}) => _speakFluid(text, overrideRate: rate),
+        onClose: () => setState(() => _openLesson = null),
+        onCompleteAndNext: () => _completeAndAdvanceToNextStep(_openLesson!),
+        onPracticeWithAmy: () => _practiceLessonWithAmy(_openLesson!),
+      );
     }
 
     final tokens = AppTheme.tokensOf(context);
@@ -1648,6 +2210,7 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
         ),
         const SizedBox(height: 8),
 
+        // Chemin d'apprentissage sinueux façon Duolingo (nœuds alternés + COMMENCER)
         ...levelLessons.asMap().entries.map((entry) {
           final idx = entry.key;
           final lesson = entry.value;
@@ -1656,79 +2219,149 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
               levelLessons
                   .take(idx)
                   .every((prev) => _completedLessonIds.contains(prev.id));
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: YitteSurfaceCard(
-              padding: const EdgeInsets.all(14),
-              borderColor: isNextActive
-                  ? tokens.borderAccent
-                  : (done ? YitteColors.emerald : tokens.borderSubtle),
-              onTap: () => setState(() => _openLesson = lesson),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: done
-                          ? YitteColors.emerald
-                          : (isNextActive
-                              ? YitteColors.gold
-                              : tokens.subtleFill),
-                      border: Border.all(
-                        color: done || isNextActive
-                            ? YitteColors.gold
-                            : tokens.borderSubtle,
-                      ),
-                    ),
-                    child: Center(
-                      child: done
-                          ? const Icon(
-                              Icons.check_rounded,
-                              size: 20,
-                              color: YitteColors.ivory,
-                            )
-                          : Text(
-                              '${idx + 1}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: isNextActive
-                                    ? YitteColors.inkDark
-                                    : YitteColors.emerald,
-                              ),
-                            ),
-                    ),
+          final alignmentX = const [0.0, -0.36, 0.0, 0.36][idx % 4];
+          final unitSection = (idx % 3 == 0);
+
+          return Column(
+            children: [
+              if (unitSection)
+                Container(
+                  width: double.infinity,
+                  margin: EdgeInsets.only(top: idx == 0 ? 0 : 8, bottom: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: tokens.elevated,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: tokens.borderAccent),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                  child: Row(
+                    children: [
+                      YitteStatusPill(
+                        label: 'UNITÉ ${(idx ~/ 3) + 1} • $_cefr',
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          idx == 0
+                              ? 'Fondations & réflexes naturels'
+                              : 'Perfectionnement continu (Infini)',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Align(
+                alignment: Alignment(alignmentX, 0),
+                child: Column(
+                  children: [
+                    if (isNextActive)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: YitteColors.gold,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'COMMENCER',
+                          style: TextStyle(
+                            color: YitteColors.inkDark,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                      ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(40),
+                      onTap: () => setState(() => _openLesson = lesson),
+                      child: Container(
+                        width: 68,
+                        height: 68,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: done
+                              ? YitteColors.emerald
+                              : (isNextActive
+                                  ? YitteColors.gold
+                                  : tokens.elevated),
+                          border: Border.all(
+                            color: done || isNextActive
+                                ? YitteColors.emerald
+                                : tokens.borderAccent,
+                            width: isNextActive ? 3 : 2,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Expanded(
-                              child: Text(
-                                lesson.titleFr,
-                                style: Theme.of(context).textTheme.titleSmall,
+                            Icon(
+                              done
+                                  ? Icons.check_rounded
+                                  : (isNextActive
+                                      ? Icons.star_rounded
+                                      : Icons.play_arrow_rounded),
+                              size: 26,
+                              color: done
+                                  ? YitteColors.gold
+                                  : (isNextActive
+                                      ? YitteColors.inkDark
+                                      : YitteColors.emerald),
+                            ),
+                            Text(
+                              'É.${idx + 1}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: done
+                                    ? YitteColors.ivory
+                                    : (isNextActive
+                                        ? YitteColors.inkDark
+                                        : YitteColors.emerald),
                               ),
                             ),
-                            if (isNextActive)
-                              const YitteStatusPill(label: 'Suivante'),
                           ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Étape ${idx + 1} • ${lesson.subtitleFr} • ${lesson.durationMin} min',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                  const Icon(Icons.chevron_right_rounded, size: 20),
-                ],
+                    const SizedBox(height: 5),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: InkWell(
+                        onTap: () => setState(() => _openLesson = lesson),
+                        child: Text(
+                          lesson.titleFr,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontSize: 12.5,
+                              ),
+                        ),
+                      ),
+                    ),
+                    if (idx < levelLessons.length - 1)
+                      Container(
+                        width: 2,
+                        height: 18,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        color: done ? YitteColors.emerald : tokens.borderSubtle,
+                      )
+                    else
+                      const SizedBox(height: 14),
+                  ],
+                ),
               ),
-            ),
+            ],
           );
         }),
 
@@ -1806,314 +2439,6 @@ class _EnglishClubScreenState extends ConsumerState<EnglishClubScreen> {
     );
   }
 
-  Widget _buildLessonDetail(BuildContext context, LearnaLesson lesson) {
-    final tokens = AppTheme.tokensOf(context);
-    final done = _completedLessonIds.contains(lesson.id);
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
-      children: [
-        Row(
-          children: [
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-              ),
-              onPressed: () => setState(() => _openLesson = null),
-              icon: const Icon(Icons.arrow_back_rounded, size: 16),
-              label: const Text('Tous les cours'),
-            ),
-            const Spacer(),
-            YitteStatusPill(label: '${lesson.level} • Unité ${lesson.unitNumber}'),
-          ],
-        ),
-        const SizedBox(height: 10),
-
-        YitteSurfaceCard(
-          padding: const EdgeInsets.all(15),
-          borderColor: tokens.borderAccent,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                lesson.titleFr,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 4),
-              Text(lesson.subtitleFr, style: Theme.of(context).textTheme.bodySmall),
-              const Divider(height: 22),
-
-              // 1. L'essentiel
-              Text(
-                '1. L’ESSENTIEL À MAÎTRISER',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w700,
-                      color: tokens.goldAccent,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              ...lesson.coreRules.map(
-                (r) => Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text('• $r', style: const TextStyle(height: 1.42)),
-                ),
-              ),
-
-              const Divider(height: 22),
-
-              // 2. À éviter vs Naturel (avec écoute fluide)
-              Text(
-                '2. PIÈGES FRANCOPHONES : À ÉVITER VS NATUREL',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w700,
-                      color: tokens.goldAccent,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              ...lesson.traps.map(
-                (row) => Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: tokens.subtleFill,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: tokens.borderSubtle),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              row.avoid,
-                              style: const TextStyle(
-                                color: YitteColors.danger,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              row.natural,
-                              style: const TextStyle(
-                                color: YitteColors.emerald,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              row.explanationFr,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Écouter la tournure naturelle',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _speakFluid(
-                          row.natural.replaceAll('✅', '').trim(),
-                        ),
-                        icon: const Icon(
-                          Icons.volume_up_outlined,
-                          size: 19,
-                          color: YitteColors.emerald,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const Divider(height: 22),
-
-              // 3. Dialogue audio naturel
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '3. DIALOGUE AUDIO',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            letterSpacing: 1.1,
-                            fontWeight: FontWeight.w700,
-                            color: tokens.goldAccent,
-                          ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    onPressed: () => _speakFluid(
-                      lesson.dialogue.map((d) => d.english).join(' '),
-                    ),
-                    icon: const Icon(Icons.volume_up_rounded, size: 16),
-                    label: const Text('Tout écouter'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              ...lesson.dialogue.map(
-                (line) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${line.speaker} : "${line.english}"',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13.5,
-                              ),
-                            ),
-                            Text(
-                              line.french,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _speakFluid(line.english),
-                        icon: const Icon(
-                          Icons.play_circle_outline_rounded,
-                          size: 19,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const Divider(height: 22),
-
-              // 4. Exercice immédiat corrigé
-              Text(
-                '4. VÉRIFICATION RAPIDE',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w700,
-                      color: tokens.goldAccent,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              ...lesson.quiz.asMap().entries.map((entry) {
-                final qKey = '${lesson.id}_${entry.key}';
-                final q = entry.value;
-                final fb = _lessonQuizFeedback[qKey];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        q.question,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: q.options.map((opt) {
-                          return ActionChip(
-                            label: Text(opt),
-                            onPressed: () {
-                              setState(() {
-                                _lessonQuizFeedback[qKey] = opt == q.answer
-                                    ? '✓ Exact ! ${q.explanation}'
-                                    : 'À revoir : la bonne réponse est « ${q.answer} ». ${q.explanation}';
-                              });
-                            },
-                          );
-                        }).toList(),
-                      ),
-                      if (fb != null) ...[
-                        const SizedBox(height: 5),
-                        Text(
-                          fb,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: fb.startsWith('✓')
-                                ? YitteColors.emerald
-                                : YitteColors.danger,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                );
-              }),
-
-              const SizedBox(height: 6),
-              // CTA Parcours Infini : valide l'étape (+50 XP), avance l'objectif du jour et enchaîne immédiatement !
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: YitteColors.gold,
-                    foregroundColor: YitteColors.inkDark,
-                  ),
-                  onPressed: _generatingLesson
-                      ? null
-                      : () => _completeAndAdvanceToNextStep(lesson),
-                  icon: Icon(
-                    _generatingLesson
-                        ? Icons.hourglass_top_rounded
-                        : Icons.arrow_forward_rounded,
-                    size: 18,
-                  ),
-                  label: Text(
-                    _generatingLesson
-                        ? 'Préparation de l’étape suivante…'
-                        : (done
-                            ? 'Étape suivante →'
-                            : 'Valider (+50 XP) & Étape suivante →'),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              // CTA signature Learna AI : appliquer la leçon en discutant en direct avec Amy !
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _practiceLessonWithAmy(lesson),
-                  icon: const Icon(Icons.forum_outlined, size: 18),
-                  label: const Text('Pratiquer cette leçon avec Amy →'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _toggleLessonCompleted(lesson.id),
-                  icon: Icon(
-                    done
-                        ? Icons.check_circle_rounded
-                        : Icons.check_circle_outline_rounded,
-                    size: 18,
-                  ),
-                  label: Text(
-                    done ? 'Étape validée ✓' : 'Valider cette étape (+50 XP)',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // ONGLET 2 : VOCABULAIRE & DICTIONNAIRE RAPIDE (ÉPURÉ, ZÉRO JARGON)

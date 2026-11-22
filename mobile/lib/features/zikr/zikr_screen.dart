@@ -701,8 +701,11 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
     YitteSurfaceTokens tokens,
   ) {
     final pct = (s.progressRatio * 100).round();
-    final isCreator =
-        s.creatorName == memberName || s.creatorName == 'BOROOM YITTÉ';
+    final profile = ref.read(authProvider);
+    final canDelete = profile != null &&
+        (profile.role.isAdminOrAbove ||
+            (s.creatorName == profile.fullName &&
+                s.creatorName != 'BOROOM YITTÉ'));
     return YitteSurfaceCard(
       padding: const EdgeInsets.all(14),
       borderColor: s.isCompleted ? tokens.borderSubtle : tokens.borderAccent,
@@ -793,7 +796,7 @@ class _ZikrScreenState extends ConsumerState<ZikrScreen> {
                   ),
                 ),
               ),
-              if (isCreator) ...[
+              if (canDelete) ...[
                 const SizedBox(width: 8),
                 IconButton(
                   tooltip: 'Supprimer la session',
