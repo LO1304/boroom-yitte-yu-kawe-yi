@@ -1,0 +1,188 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <base href="/boroom-yitte-yu-kawe-yi/">
+  <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="BOROOM YITTÉ YU KAWÉ YI — Écosystème numérique communautaire : spiritualité, savoir, débats et élévation collective.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0A4B3C">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Boroom Yitté">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <title>BOROOM YITTÉ YU KAWÉ YI</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    :root {
+      --yitte-emerald-deep: #062E24;
+      --yitte-emerald: #0A4B3C;
+      --yitte-ivory: #F6F2E9;
+      --yitte-gold: #DFB864;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 30% 20%, #0F5E4B 0%, var(--yitte-emerald-deep) 78%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(6, 46, 36, 0.06);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(184, 139, 50, 0.45);
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(184, 139, 50, 0.72);
+    }
+
+    #yitte-preloader {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      color: var(--yitte-ivory);
+      background:
+        radial-gradient(circle at 50% 35%, rgba(223, 184, 100, 0.14), transparent 56%),
+        linear-gradient(155deg, #0B4F3F 0%, #062E24 65%, #041E17 100%);
+      transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), visibility 420ms ease;
+    }
+
+    #yitte-preloader.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .yitte-emblem-wrap {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 24px;
+    }
+
+    .yitte-orbit {
+      position: absolute;
+      inset: 0;
+      border-radius: 26px;
+      border: 1.5px solid rgba(223, 184, 100, 0.42);
+      transform: rotate(45deg);
+      animation: yitteOrbitSpin 10s linear infinite;
+      box-shadow: 0 0 28px rgba(223, 184, 100, 0.16);
+    }
+
+    .yitte-orbit-inner {
+      position: absolute;
+      inset: 8px;
+      border-radius: 22px;
+      border: 1px solid rgba(246, 242, 233, 0.25);
+      animation: yittePulse 2.6s ease-in-out infinite;
+    }
+
+    .yitte-emblem-core {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: rgba(223, 184, 100, 0.16);
+      border: 1px solid rgba(223, 184, 100, 0.55);
+      display: grid;
+      place-items: center;
+      backdrop-filter: blur(8px);
+    }
+
+    .yitte-brand {
+      margin: 0 0 8px 0;
+      text-align: center;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(20px, 4vw, 28px);
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      background: linear-gradient(90deg, #F6F2E9 0%, #DFB864 52%, #F6F2E9 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: yitteShimmer 3.2s linear infinite;
+    }
+
+    .yitte-sub {
+      margin: 0;
+      text-align: center;
+      font-size: 13.5px;
+      color: rgba(246, 242, 233, 0.78);
+      letter-spacing: 0.2px;
+    }
+
+    @keyframes yitteOrbitSpin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes yittePulse {
+      0%, 100% { transform: scale(0.95); opacity: 0.55; }
+      50% { transform: scale(1.06); opacity: 1; }
+    }
+
+    @keyframes yitteShimmer {
+      to { background-position: 200% center; }
+    }
+  </style>
+</head>
+<body>
+  <div id="yitte-preloader" aria-label="Chargement de Boroom Yitté Yu Kawé Yi">
+    <div class="yitte-emblem-wrap">
+      <div class="yitte-orbit"></div>
+      <div class="yitte-orbit-inner"></div>
+      <div class="yitte-emblem-core">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#DFB864" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.6 2.2-5 4.4-5 7.5a5 5 0 0 0 10 0C17 7.4 14.6 5.2 12 3z"/>
+          <path d="M4 20h16"/>
+          <path d="M7 20v-4a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+    </div>
+    <h1 class="yitte-brand">BOROOM YITTÉ YU KAWÉ YI</h1>
+    <p class="yitte-sub">S’élever individuellement, grandir collectivement…</p>
+  </div>
+
+  <script>
+    (function () {
+      function hideLoader() {
+        var el = document.getElementById('yitte-preloader');
+        if (el) el.classList.add('hidden');
+      }
+      window.addEventListener('flutter-first-frame', hideLoader);
+      setTimeout(hideLoader, 9000);
+    })();
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
+
