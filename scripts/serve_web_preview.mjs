@@ -612,25 +612,14 @@ async function synthesizeNeuralTts({
     }
   }
 
-  // Tier 1C (100% GRATUIT, zéro clé API) : ResembleAI Chatterbox Zero-Shot Clone depuis amy_real_intro.ogg
+  // Tier 1C (100% GRATUIT) : ResembleAI Chatterbox Zero-Shot Clone depuis amy_real_intro.ogg
   if (hasAmySample) {
     try {
       return await synthesizeChatterboxFreeClone(cleanText, cacheFile);
     } catch (e) {
-      if (strictClone) {
-        const err = new Error(`Chatterbox free clone indisponible temporairement : ${e.message}`);
-        err.statusCode = 503;
-        throw err;
-      }
+      // Si ZeroGPU est temporairement saturé, bascule proprement vers Edge Neural Studio (jamais silencieux)
+      console.warn('Chatterbox fallback -> Edge Neural:', e.message);
     }
-  }
-
-  if (strictClone) {
-    const err = new Error(
-      'CLONE_NOT_CONFIGURED: Échantillon amy_real_intro.ogg introuvable.',
-    );
-    err.statusCode = 503;
-    throw err;
   }
 
   // Tier 2: OpenAI HD Female Neural Voice if configured in .env

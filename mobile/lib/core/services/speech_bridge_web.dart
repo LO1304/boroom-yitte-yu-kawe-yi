@@ -865,12 +865,15 @@ class SpeechBridge {
               .toDart;
       if (sseTextAny == null || !sseTextAny.isA<JSString>()) return null;
       final sseText = (sseTextAny as JSString).toDart;
+      if (sseText.contains('event: error')) return null;
       String? dataLine;
       for (final line in sseText.split(RegExp(r'\r?\n'))) {
         if (line.startsWith('data:')) dataLine = line;
       }
       if (dataLine == null) return null;
-      final parsed = jsonDecode(dataLine.substring(5).trim());
+      final rawData = dataLine.substring(5).trim();
+      if (rawData.isEmpty || rawData == 'null') return null;
+      final parsed = jsonDecode(rawData);
       if (parsed is List && parsed.isNotEmpty && parsed.first is Map) {
         final url = (parsed.first as Map)['url']?.toString();
         if (url != null && url.isNotEmpty) {
@@ -900,17 +903,20 @@ class SpeechBridge {
     required String text,
     required double playbackRate,
     required int token,
+    required void Function() onFallbackFluidVoice,
     String? fallbackAssetUrl,
     void Function(bool isSpeaking)? onSpeakingChanged,
     void Function(int wordIndex)? onWordIndex,
     void Function(String engine)? onEngineUsed,
   }) {
     onEngineUsed?.call('chatterbox-cloning');
-    _requestChatterboxCloneUrl(text).then((audioUrl) {
+    _requestChatterboxCloneUrl(text)
+        .timeout(const Duration(seconds: 12), onTimeout: () => null)
+        .then((audioUrl) {
       if (token != _speakToken) return;
       if (audioUrl == null || audioUrl.isEmpty) {
-        onEngineUsed?.call('clone-required');
-        onSpeakingChanged?.call(false);
+        // Quota ZeroGPU atteint → bascule immédiate sur la voix féminine fluide (jamais silencieux)
+        onFallbackFluidVoice();
         return;
       }
       _playNeuralAudioUrl(
@@ -918,12 +924,9 @@ class SpeechBridge {
         fullText: text,
         playbackRate: playbackRate,
         token: token,
-        engineLabel: 'Voix réelle clonée d’Amy (Gratuit)',
+        engineLabel: 'Voix réelle clonée d’Amy',
         fallbackAssetUrl: fallbackAssetUrl,
-        onFallbackWebSpeech: () {
-          onEngineUsed?.call('clone-required');
-          onSpeakingChanged?.call(false);
-        },
+        onFallbackWebSpeech: onFallbackFluidVoice,
         onSpeakingChanged: onSpeakingChanged,
         onWordIndex: onWordIndex,
         onEngineUsed: onEngineUsed,
@@ -956,17 +959,44 @@ class SpeechBridge {
         ? 'assets/$bundledAssetPath'
         : null;
 
-    final customBase = (voiceServerBaseUrl ?? '').trim().replaceAll(RegExp(r'/+$'), '');
+    void fallbackWebSpeech() => _speakWithNaturalWebSpeech(
+          text: clean,
+          locale: locale,
+          rate: rate,
+          preferFemale: preferFemale,
+          voiceProfile: voiceProfile,
+          token: token,
+          onSpeakingChanged: onSpeakingChanged,
+          onWordIndex: onWordIndex,
+          onEngineUsed: onEngineUsed,
+        );
+
+    void fallbackFluidCloud() => _playConsistentCloudQueue(
+          fullText: clean,
+          locale: locale,
+          voiceProfile: voiceProfile,
+          playbackRate: rate,
+          token: token,
+          offlineAssetUrl: assetUrl,
+          onFallbackWebSpeech: fallbackWebSpeech,
+          onSpeakingChanged: onSpeakingChanged,
+          onWordIndex: onWordIndex,
+          onEngineUsed: onEngineUsed,
+        );
+
+    final customBase =
+        (voiceServerBaseUrl ?? '').trim().replaceAll(RegExp(r'/+$'), '');
     final hasCloneBackend = customBase.isNotEmpty || _canUseLocalNeuralApi;
 
     if (strictRealVoiceOnly) {
       if (!hasCloneBackend) {
-        // Sur GitHub Pages (sans serveur), clonage direct 100% GRATUIT via ResembleAI Chatterbox !
+        // Sur GitHub Pages : tente le clonage gratuit Chatterbox, sinon voix féminine fluide (jamais de silence)
         _speakViaChatterboxDirect(
           text: clean,
           playbackRate: rate,
           token: token,
           fallbackAssetUrl: assetUrl,
+          onFallbackFluidVoice: fallbackFluidCloud,
           onSpeakingChanged: onSpeakingChanged,
           onWordIndex: onWordIndex,
           onEngineUsed: onEngineUsed,
@@ -979,7 +1009,7 @@ class SpeechBridge {
               : 'amy-fluent-us');
       final prefix = customBase.isNotEmpty ? customBase : '';
       final ttsUrl =
-          '$prefix/api/tts?strictClone=1&text=${Uri.encodeQueryComponent(clean)}&voice=${Uri.encodeQueryComponent(resolvedVoice)}&locale=${Uri.encodeQueryComponent(locale)}&rate=${rate.toStringAsFixed(2)}';
+          '$prefix/api/tts?text=${Uri.encodeQueryComponent(clean)}&voice=${Uri.encodeQueryComponent(resolvedVoice)}&locale=${Uri.encodeQueryComponent(locale)}&rate=${rate.toStringAsFixed(2)}';
       _playNeuralAudioUrl(
         url: ttsUrl,
         fullText: clean,
@@ -987,33 +1017,13 @@ class SpeechBridge {
         token: token,
         engineLabel: 'Voix réelle clonée d’Amy',
         fallbackAssetUrl: assetUrl,
-        onFallbackWebSpeech: () => _speakViaChatterboxDirect(
-          text: clean,
-          playbackRate: rate,
-          token: token,
-          fallbackAssetUrl: assetUrl,
-          onSpeakingChanged: onSpeakingChanged,
-          onWordIndex: onWordIndex,
-          onEngineUsed: onEngineUsed,
-        ),
+        onFallbackWebSpeech: fallbackFluidCloud,
         onSpeakingChanged: onSpeakingChanged,
         onWordIndex: onWordIndex,
         onEngineUsed: onEngineUsed,
       );
       return;
     }
-
-    void fallbackWebSpeech() => _speakWithNaturalWebSpeech(
-          text: clean,
-          locale: locale,
-          rate: rate,
-          preferFemale: preferFemale,
-          voiceProfile: voiceProfile,
-          token: token,
-          onSpeakingChanged: onSpeakingChanged,
-          onWordIndex: onWordIndex,
-          onEngineUsed: onEngineUsed,
-        );
 
     // 1. Local/LAN server Neural Studio TTS (/api/tts — Edge Neural Ava/Libby/Sonia ou ElevenLabs)
     //    100% homogène sur TOUTES les phrases et mots !
